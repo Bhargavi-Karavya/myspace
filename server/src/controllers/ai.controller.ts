@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { generateMessage, generateTestMessage } from '../services/gemini.service.js';
+import { chatRequestSchema } from '../validators/ai.validator.js';
 
 export async function getAiTest(_request: Request, response: Response) {
   try {
@@ -13,19 +14,25 @@ export async function getAiTest(_request: Request, response: Response) {
 }
 
 export async function chatWithAi(request: Request, response: Response) {
-  const { message } = request.body as { message?: unknown };
+  const parsed = chatRequestSchema.safeParse(request.body);
 
-  if (typeof message !== 'string' || !message.trim()) {
-    response.status(400).json({ error: 'Message is required' });
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'messages',
+        message: issue.message,
+      })),
+    });
     return;
   }
 
   try {
-    const aiMessage = await generateMessage(message);
+    const aiMessage = await generateMessage(parsed.data.messages);
 
     response.status(200).json({ message: aiMessage });
   } catch (error) {
     console.error('Gemini chat request failed:', error);
-    response.status(502).json({ error: 'Unable to generate an AI response' });
+    response.status(500).json({ error: 'Unable to generate a response right now' });
   }
 }
