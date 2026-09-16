@@ -1,111 +1,183 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+@import 'tailwindcss';
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+@custom-variant dark (&:where(.dark, .dark *));
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@theme {
+  --font-sans: 'Manrope', ui-sans-serif, sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --color-myspace-blue: #3f8ef5;
+  --color-myspace-blue-soft: #5aa0f7;
+  --color-myspace-blue-deep: #2f6fd9;
+
+  --color-ink: #1c212b;
+  --color-ink-muted: #667085;
+  --color-canvas: #f3f6fb;
+  --color-surface: #ffffff;
+  --color-surface-soft: #eef2f9;
+  --color-line: #e2e8f2;
+
+  --color-ink-dark: #f2f4f8;
+  --color-ink-muted-dark: #9aa3b5;
+  --color-canvas-dark: #10131a;
+  --color-surface-dark: #181c25;
+  --color-surface-soft-dark: #222836;
+  --color-line-dark: #2b3344;
 }
 
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+    color-scheme: light;
+    --bg: var(--color-canvas);
+    --bg-elevated: var(--color-surface);
+    --bg-soft: var(--color-surface-soft);
+    --fg: var(--color-ink);
+    --fg-muted: var(--color-ink-muted);
+    --border: var(--color-line);
+    --accent: var(--color-myspace-blue);
+    --accent-soft: color-mix(in srgb, var(--color-myspace-blue) 14%, white);
+    --composer-ring: color-mix(in srgb, var(--color-myspace-blue) 35%, transparent);
+    --scroll-thumb: color-mix(in srgb, var(--color-myspace-blue) 28%, #c5d0e0);
+    --scroll-thumb-hover: color-mix(in srgb, var(--color-myspace-blue) 55%, #9eb0c8);
+    --scroll-track: transparent;
   }
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+  .dark {
+    color-scheme: dark;
+    --bg: var(--color-canvas-dark);
+    --bg-elevated: var(--color-surface-dark);
+    --bg-soft: var(--color-surface-soft-dark);
+    --fg: var(--color-ink-dark);
+    --fg-muted: var(--color-ink-muted-dark);
+    --border: var(--color-line-dark);
+    --accent: var(--color-myspace-blue-soft);
+    --accent-soft: color-mix(in srgb, var(--color-myspace-blue) 22%, #181c25);
+    --composer-ring: color-mix(in srgb, var(--color-myspace-blue-soft) 40%, transparent);
+    --scroll-thumb: color-mix(in srgb, var(--color-myspace-blue-soft) 35%, #3a4558);
+    --scroll-thumb-hover: color-mix(in srgb, var(--color-myspace-blue-soft) 60%, #4a5670);
+    --scroll-track: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--fg);
+    background:
+      radial-gradient(ellipse 90% 55% at 50% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .dark body {
+    background:
+      radial-gradient(ellipse 80% 45% at 50% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 55%),
+      var(--bg);
+  }
+
+  * {
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--scroll-track);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 45%, var(--scroll-thumb)),
+      var(--scroll-thumb)
+    );
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 70%, var(--scroll-thumb-hover)),
+      var(--scroll-thumb-hover)
+    );
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  button,
+  textarea {
+    font: inherit;
+  }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+@layer utilities {
+  .scrollbar-myspace {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
+    scroll-behavior: smooth;
   }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+  .scrollbar-myspace::-webkit-scrollbar {
+    width: 6px;
   }
-}
-p {
-  margin: 0;
-}
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
+  .scrollbar-myspace::-webkit-scrollbar-thumb {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 55%, transparent),
+      color-mix(in srgb, var(--accent) 30%, transparent)
+    );
+    border-radius: 999px;
+  }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  .scrollbar-myspace::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 80%, transparent),
+      color-mix(in srgb, var(--accent) 50%, transparent)
+    );
+  }
+
+  /* Soft top/bottom fade while scrolling */
+  .scroll-fade {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      #000 12px,
+      #000 calc(100% - 16px),
+      transparent 100%
+    );
+  }
+
+  .scroll-fade-y {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 18px,
+      #000 calc(100% - 22px),
+      transparent
+    );
+  }
 }

@@ -17,7 +17,7 @@ function toGeminiContents(messages: ChatMessage[]): Content[] {
 
 export async function generateMessage(messages: ChatMessage[]) {
   const response = await gemini.models.generateContent({
-    model: 'gemini-3.8-flash',
+    model: 'gemini-3.6-flash',
     contents: toGeminiContents(messages),
     config: {
       systemInstruction,
