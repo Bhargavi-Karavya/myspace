@@ -1,15 +1,18 @@
 import { performance } from 'node:perf_hooks';
 import type { Request, Response } from 'express';
 import {
+  generateJsonAnalysis,
   generateStructuredAnalysis,
   generateTestMessage,
   getGeminiErrorStatus,
   isGeminiQuotaOrRateLimitError,
+  JsonOutputError,
   startMessageStream,
   StructuredOutputError,
 } from '../services/gemini.service.js';
 import {
   chatRequestSchema,
+  jsonRequestSchema,
   structuredRequestSchema,
 } from '../validators/ai.validator.js';
 
@@ -143,6 +146,62 @@ export async function structuredWithAi(request: Request, response: Response) {
 
     response.status(500).json({
       error: 'Unable to generate a structured response right now',
+    });
+  }
+}
+
+/**
+ * Task 2.2 — isolated JSON-output experiment (does not affect /chat or /structured).
+ */
+export async function jsonWithAi(request: Request, response: Response) {
+  const parsed = jsonRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'message',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const analysis = await generateJsonAnalysis(parsed.data.message);
+    response.status(200).json(analysis);
+  } catch (error) {
+    if (error instanceof JsonOutputError) {
+      console.error('JSON output failed:', {
+        message: error.message,
+        details: error.causeDetail,
+      });
+      response.status(500).json({
+        error: 'Unable to generate a JSON response right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini JSON request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to generate a JSON response right now',
     });
   }
 }

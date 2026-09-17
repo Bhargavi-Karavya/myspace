@@ -35,7 +35,25 @@ export const structuredAnalysisSchema = z.object({
   needsFollowUp: z.boolean(),
 });
 
+/** Task 2.2 — JSON-output experiment request */
+export const jsonRequestSchema = z.object({
+  message: z
+    .string({ error: 'Message must be a string' })
+    .trim()
+    .min(1, 'Message is required')
+    .max(5000, 'Message must be at most 5000 characters'),
+});
+
+/** Task 2.2 — expected Gemini JSON shape */
+export const jsonAnalysisSchema = z.object({
+  topic: z.string().min(1),
+  summary: z.string().min(1),
+  keywords: z.array(z.string().min(1)).min(1),
+});
+
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type StructuredRequest = z.infer<typeof structuredRequestSchema>;
 export type StructuredAnalysis = z.infer<typeof structuredAnalysisSchema>;
+export type JsonRequest = z.infer<typeof jsonRequestSchema>;
+export type JsonAnalysis = z.infer<typeof jsonAnalysisSchema>;

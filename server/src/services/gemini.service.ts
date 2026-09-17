@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, Type, type Content, type Schema } from '@google/genai';
 import { env } from '../config/env.js';
 import {
+  jsonAnalysisSchema,
   structuredAnalysisSchema,
   type ChatMessage,
+  type JsonAnalysis,
   type StructuredAnalysis,
 } from '../validators/ai.validator.js';
 
@@ -274,6 +276,55 @@ export class StructuredOutputError extends Error {
   constructor(message: string, causeDetail?: unknown) {
     super(message);
     this.name = 'StructuredOutputError';
+    this.causeDetail = causeDetail;
+  }
+}
+
+/**
+ * Task 2.2 experiment: ask Gemini for JSON via responseMimeType only
+ * (no responseSchema), then parse + Zod-validate before returning.
+ */
+export async function generateJsonAnalysis(
+  message: string,
+): Promise<JsonAnalysis> {
+  const response = await gemini.models.generateContent({
+    model: env.GEMINI_MODEL,
+    contents: message,
+    config: {
+      systemInstruction:
+        'Analyze the user message for a personal context assistant. Return JSON only with exactly these fields: "topic" (string), "summary" (string), and "keywords" (array of strings). Do not include markdown, code fences, or any text outside the JSON object. Do not diagnose medical or psychological conditions.',
+      responseMimeType: 'application/json',
+    },
+  });
+
+  if (!response.text) {
+    throw new JsonOutputError('Gemini returned an empty JSON response');
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(response.text) as unknown;
+  } catch (error) {
+    throw new JsonOutputError('Gemini returned non-JSON output', error);
+  }
+
+  const validated = jsonAnalysisSchema.safeParse(parsedJson);
+  if (!validated.success) {
+    throw new JsonOutputError(
+      'Gemini JSON output failed Zod validation',
+      validated.error,
+    );
+  }
+
+  return validated.data;
+}
+
+export class JsonOutputError extends Error {
+  readonly causeDetail: unknown;
+
+  constructor(message: string, causeDetail?: unknown) {
+    super(message);
+    this.name = 'JsonOutputError';
     this.causeDetail = causeDetail;
   }
 }
