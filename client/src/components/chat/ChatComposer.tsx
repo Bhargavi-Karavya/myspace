@@ -14,6 +14,7 @@ type ChatComposerProps = {
   onChange: (value: string) => void
   onSubmit: () => void
   status?: ChatComposerStatus
+  hint?: string
 }
 
 export function ChatComposer({
@@ -21,6 +22,7 @@ export function ChatComposer({
   onChange,
   onSubmit,
   status = 'idle',
+  hint = 'Connected to MySpace chat API · identical messages reuse a saved reply',
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const labelId = useId()
@@ -97,7 +99,7 @@ export function ChatComposer({
         </button>
       </div>
       <p className="mx-auto mt-1.5 max-w-3xl px-1 text-center text-[11px] text-[var(--fg-muted)]">
-        Local preview — API connection comes next
+        {hint}
       </p>
     </form>
   )

@@ -10,3 +10,6 @@
 # Tooling
 *.log
 .DS_Store
+
+# Local Gemini response cache
+server/.cache/

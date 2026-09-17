@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" width="100%" height="100%">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2575FC"/>
+      <stop offset="50%" stop-color="#1A66FF"/>
+      <stop offset="100%" stop-color="#0045D8"/>
+    </linearGradient>
+    <linearGradient id="dotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="overlayGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#1D60E8"/>
+      <stop offset="100%" stop-color="#0B42C1"/>
+    </linearGradient>
+    <filter id="overlapShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="-2" dy="4" stdDeviation="3" flood-color="#041235" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <g id="logo-mark">
+    <circle cx="95" cy="30" r="11.5" fill="url(#dotGrad)" />
+    <path
+      d="M 58 122 C 38 122 22 106 22 86 C 22 66 38 50 58 50 C 74 50 86 64 95 78 C 104 92 116 122 132 122 C 152 122 168 106 168 86 C 168 66 152 50 132 50 C 116 50 104 64 95 78 C 86 92 74 122 58 122 Z"
+      fill="none"
+      stroke="url(#blueGrad)"
+      stroke-width="21"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M 95 78 C 104 92 116 122 132 122 C 152 122 168 106 168 86 C 168 66 152 50 132 50 C 118 50 107 61 98 73"
+      fill="none"
+      stroke="url(#overlayGrad)"
+      stroke-width="21"
+      stroke-linecap="round"
+      filter="url(#overlapShadow)"
+    />
+  </g>
+
+  <g id="logo-text">
+    <text
+      x="200"
+      y="108"
+      font-family="Manrope, System-UI, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+      font-size="68"
+      font-weight="700"
+      fill="#0D1527"
+      letter-spacing="-2.2"
+    >MySpace</text>
+  </g>
+</svg>
