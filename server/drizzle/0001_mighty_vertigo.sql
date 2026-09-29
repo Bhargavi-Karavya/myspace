@@ -1,0 +1,2 @@
+ALTER TABLE "memories" ADD COLUMN "importance" double precision DEFAULT 0.5 NOT NULL;--> statement-breakpoint
+ALTER TABLE "memories" ADD CONSTRAINT "memories_importance_range" CHECK ("memories"."importance" >= 0 AND "memories"."importance" <= 1);

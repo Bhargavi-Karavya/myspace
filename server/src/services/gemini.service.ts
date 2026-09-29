@@ -4,10 +4,31 @@ import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, Type, type Content, type Schema } from '@google/genai';
 import { env } from '../config/env.js';
 import {
-  jsonAnalysisSchema,
+  classifyAiResponseSchema,
+  MESSAGE_CATEGORIES,
+  type ClassifyAiResponse,
+} from '../validators/ai-classify-response.validator.js';
+import {
+  extractAiResponseSchema,
+  type ExtractAiResponse,
+} from '../validators/ai-extract-response.validator.js';
+import {
+  intentAiResponseSchema,
+  MESSAGE_INTENTS,
+  type IntentAiResponse,
+} from '../validators/ai-intent-response.validator.js';
+import {
+  memoryExtractAiResponseSchema,
+  type MemoryExtractAiResponse,
+} from '../validators/ai-memory-extract-response.validator.js';
+import { MEMORY_CATEGORIES } from '../memory/categories.js';
+import {
+  jsonAiResponseSchema,
+  type JsonAiResponse,
+} from '../validators/ai-json-response.validator.js';
+import {
   structuredAnalysisSchema,
   type ChatMessage,
-  type JsonAnalysis,
   type StructuredAnalysis,
 } from '../validators/ai.validator.js';
 
@@ -37,6 +58,106 @@ export const structuredAnalysisGeminiSchema: Schema = {
   required: ['topic', 'summary', 'needsFollowUp'],
   propertyOrdering: ['topic', 'summary', 'needsFollowUp'],
 };
+
+/** Gemini responseSchema for the Task 2.4 structured-extraction experiment. */
+export const extractAiGeminiSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    facts: {
+      type: Type.ARRAY,
+      description:
+        'Concise factual statements explicitly supported by the user message. Do not invent facts.',
+      items: { type: Type.STRING },
+    },
+    topics: {
+      type: Type.ARRAY,
+      description:
+        'Main topics explicitly mentioned or clearly represented in the user message.',
+      items: { type: Type.STRING },
+    },
+  },
+  required: ['facts', 'topics'],
+  propertyOrdering: ['facts', 'topics'],
+};
+
+/** Gemini responseSchema for the Task 2.5 classification experiment. */
+export const classifyAiGeminiSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    category: {
+      type: Type.STRING,
+      format: 'enum',
+      enum: [...MESSAGE_CATEGORIES],
+      description:
+        'Exactly one allowed category for the user message. Do not invent new categories.',
+    },
+  },
+  required: ['category'],
+  propertyOrdering: ['category'],
+};
+
+/** Gemini responseSchema for the Task 2.6/2.7 intent-detection experiment. */
+export const intentAiGeminiSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    intent: {
+      type: Type.STRING,
+      format: 'enum',
+      enum: [...MESSAGE_INTENTS],
+      description:
+        'Exactly one allowed intent for the user message. Do not invent new intents. save_context and retrieve_context are labels only — do not perform saving or retrieval.',
+    },
+    confidence: {
+      type: Type.NUMBER,
+      description:
+        'Self-reported confidence that the selected intent is the best match, from 0 (uncertain) to 1 (very confident). Not a guarantee of correctness.',
+      minimum: 0,
+      maximum: 1,
+    },
+  },
+  required: ['intent', 'confidence'],
+  propertyOrdering: ['intent', 'confidence'],
+};
+
+/** Gemini responseSchema for the Task 3.3/3.9 memory-extraction experiment. */
+export const memoryExtractAiGeminiSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    memories: {
+      type: Type.ARRAY,
+      description:
+        'Zero or more candidate long-term memories explicitly supported by the user message. Empty if none.',
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          content: {
+            type: Type.STRING,
+            description:
+              'Concise memory statement explicitly supported by the user message. Do not invent facts.',
+          },
+          category: {
+            type: Type.STRING,
+            format: 'enum',
+            enum: [...MEMORY_CATEGORIES],
+            description: 'Exactly one allowed memory category.',
+          },
+          importance: {
+            type: Type.NUMBER,
+            minimum: 0,
+            maximum: 1,
+            description:
+              'How useful this memory is likely to be across future conversations (0 = very low, 1 = very high). Not a confidence or truth score.',
+          },
+        },
+        required: ['content', 'category', 'importance'],
+        propertyOrdering: ['content', 'category', 'importance'],
+      },
+    },
+  },
+  required: ['memories'],
+  propertyOrdering: ['memories'],
+};
+
 const MAX_CACHE_ENTRIES = 100;
 const responseCache = new Map<string, string>();
 
@@ -281,12 +402,13 @@ export class StructuredOutputError extends Error {
 }
 
 /**
- * Task 2.2 experiment: ask Gemini for JSON via responseMimeType only
- * (no responseSchema), then parse + Zod-validate before returning.
+ * Task 2.2/2.3: ask Gemini for JSON via responseMimeType, then
+ * JSON.parse + Zod-validate with jsonAiResponseSchema before returning.
+ * Valid JSON alone is never trusted — Zod is the runtime source of truth.
  */
 export async function generateJsonAnalysis(
   message: string,
-): Promise<JsonAnalysis> {
+): Promise<JsonAiResponse> {
   const response = await gemini.models.generateContent({
     model: env.GEMINI_MODEL,
     contents: message,
@@ -298,19 +420,27 @@ export async function generateJsonAnalysis(
   });
 
   if (!response.text) {
-    throw new JsonOutputError('Gemini returned an empty JSON response');
+    throw new JsonOutputError(
+      'parse',
+      'Gemini returned an empty JSON response',
+    );
   }
 
   let parsedJson: unknown;
   try {
-    parsedJson = JSON.parse(response.text) as unknown;
+    parsedJson = JSON.parse(response.text);
   } catch (error) {
-    throw new JsonOutputError('Gemini returned non-JSON output', error);
+    throw new JsonOutputError(
+      'parse',
+      'Gemini returned non-JSON output',
+      error,
+    );
   }
 
-  const validated = jsonAnalysisSchema.safeParse(parsedJson);
+  const validated = jsonAiResponseSchema.safeParse(parsedJson);
   if (!validated.success) {
     throw new JsonOutputError(
+      'validation',
       'Gemini JSON output failed Zod validation',
       validated.error,
     );
@@ -320,11 +450,278 @@ export async function generateJsonAnalysis(
 }
 
 export class JsonOutputError extends Error {
+  readonly kind: 'parse' | 'validation';
   readonly causeDetail: unknown;
 
-  constructor(message: string, causeDetail?: unknown) {
+  constructor(
+    kind: 'parse' | 'validation',
+    message: string,
+    causeDetail?: unknown,
+  ) {
     super(message);
     this.name = 'JsonOutputError';
+    this.kind = kind;
+    this.causeDetail = causeDetail;
+  }
+}
+
+const EXTRACT_SYSTEM_INSTRUCTION =
+  'You extract information from user messages for a personal context assistant called MySpace. Return JSON only. Populate "facts" with concise factual statements that are explicitly supported by the user message. Populate "topics" with the main topics explicitly mentioned or clearly represented in the message. Do not invent facts. Do not provide advice, recommendations, analysis, diagnosis, or solutions. Do not diagnose medical or psychological conditions.';
+
+/**
+ * Task 2.4 experiment: structured extraction of facts + topics via
+ * responseSchema, then JSON.parse + Zod validation before returning.
+ */
+export async function generateStructuredExtraction(
+  message: string,
+): Promise<ExtractAiResponse> {
+  const response = await gemini.models.generateContent({
+    model: env.GEMINI_MODEL,
+    contents: message,
+    config: {
+      systemInstruction: EXTRACT_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: extractAiGeminiSchema,
+    },
+  });
+
+  if (!response.text) {
+    throw new ExtractionOutputError(
+      'parse',
+      'Gemini returned an empty extraction response',
+    );
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(response.text);
+  } catch (error) {
+    throw new ExtractionOutputError(
+      'parse',
+      'Gemini returned non-JSON extraction output',
+      error,
+    );
+  }
+
+  const validated = extractAiResponseSchema.safeParse(parsedJson);
+  if (!validated.success) {
+    throw new ExtractionOutputError(
+      'validation',
+      'Gemini extraction output failed Zod validation',
+      validated.error,
+    );
+  }
+
+  return validated.data;
+}
+
+export class ExtractionOutputError extends Error {
+  readonly kind: 'parse' | 'validation';
+  readonly causeDetail: unknown;
+
+  constructor(
+    kind: 'parse' | 'validation',
+    message: string,
+    causeDetail?: unknown,
+  ) {
+    super(message);
+    this.name = 'ExtractionOutputError';
+    this.kind = kind;
+    this.causeDetail = causeDetail;
+  }
+}
+
+const CLASSIFY_SYSTEM_INSTRUCTION = `You classify user messages for a personal context assistant called MySpace. Return JSON only with a single field "category". Choose exactly ONE of these allowed categories: ${MESSAGE_CATEGORIES.join(', ')}. Do not invent new categories. Do not return multiple categories. Do not provide explanations, advice, or diagnosis. Base the classification only on the user's message.`;
+
+/**
+ * Task 2.5 experiment: classify a message into exactly one allowed category
+ * via responseSchema, then JSON.parse + Zod validation before returning.
+ */
+export async function generateMessageClassification(
+  message: string,
+): Promise<ClassifyAiResponse> {
+  const response = await gemini.models.generateContent({
+    model: env.GEMINI_MODEL,
+    contents: message,
+    config: {
+      systemInstruction: CLASSIFY_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: classifyAiGeminiSchema,
+    },
+  });
+
+  if (!response.text) {
+    throw new ClassificationOutputError(
+      'parse',
+      'Gemini returned an empty classification response',
+    );
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(response.text);
+  } catch (error) {
+    throw new ClassificationOutputError(
+      'parse',
+      'Gemini returned non-JSON classification output',
+      error,
+    );
+  }
+
+  const validated = classifyAiResponseSchema.safeParse(parsedJson);
+  if (!validated.success) {
+    throw new ClassificationOutputError(
+      'validation',
+      'Gemini classification output failed Zod validation',
+      validated.error,
+    );
+  }
+
+  return validated.data;
+}
+
+export class ClassificationOutputError extends Error {
+  readonly kind: 'parse' | 'validation';
+  readonly causeDetail: unknown;
+
+  constructor(
+    kind: 'parse' | 'validation',
+    message: string,
+    causeDetail?: unknown,
+  ) {
+    super(message);
+    this.name = 'ClassificationOutputError';
+    this.kind = kind;
+    this.causeDetail = causeDetail;
+  }
+}
+
+const INTENT_SYSTEM_INSTRUCTION = `You detect the primary intent of user messages for a personal context assistant called MySpace. Return JSON only with fields "intent" and "confidence". Choose exactly ONE of these allowed intents: ${MESSAGE_INTENTS.join(', ')}. Set "confidence" to a number between 0 and 1 inclusive reflecting how sure you are that this intent is the best match (0 = very uncertain, 1 = very confident). Confidence is not proof that the intent is correct. Do not invent new intents. Do not return multiple intents. Do not provide explanations, advice, solutions, or diagnosis. Base the decision only on the user's message. Note: save_context and retrieve_context are experimental labels only — do not actually save or retrieve memory.`;
+
+/**
+ * Task 2.6/2.7 experiment: detect exactly one allowed intent with a
+ * confidence score via responseSchema, then JSON.parse + Zod validation.
+ */
+export async function generateMessageIntent(
+  message: string,
+): Promise<IntentAiResponse> {
+  const response = await gemini.models.generateContent({
+    model: env.GEMINI_MODEL,
+    contents: message,
+    config: {
+      systemInstruction: INTENT_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: intentAiGeminiSchema,
+    },
+  });
+
+  if (!response.text) {
+    throw new IntentOutputError(
+      'parse',
+      'Gemini returned an empty intent response',
+    );
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(response.text);
+  } catch (error) {
+    throw new IntentOutputError(
+      'parse',
+      'Gemini returned non-JSON intent output',
+      error,
+    );
+  }
+
+  const validated = intentAiResponseSchema.safeParse(parsedJson);
+  if (!validated.success) {
+    throw new IntentOutputError(
+      'validation',
+      'Gemini intent output failed Zod validation',
+      validated.error,
+    );
+  }
+
+  return validated.data;
+}
+
+export class IntentOutputError extends Error {
+  readonly kind: 'parse' | 'validation';
+  readonly causeDetail: unknown;
+
+  constructor(
+    kind: 'parse' | 'validation',
+    message: string,
+    causeDetail?: unknown,
+  ) {
+    super(message);
+    this.name = 'IntentOutputError';
+    this.kind = kind;
+    this.causeDetail = causeDetail;
+  }
+}
+
+const MEMORY_EXTRACT_SYSTEM_INSTRUCTION = `You extract candidate long-term memories from a user message for a personal context assistant called MySpace. Return JSON only with a "memories" array. Each item must have "content" (string), "category" (one of: ${MEMORY_CATEGORIES.join(', ')}), and "importance" (number from 0 to 1 inclusive). Importance measures how useful the information is likely to be across future conversations: 0 = very low long-term usefulness, 1 = very high long-term usefulness. Importance is NOT confidence or proof that the fact is true. Only evaluate information actually supported by the user message. Include only information that could be useful as long-term personal context. Return {"memories":[]} if nothing useful. Do not invent facts, preferences, goals, or personal information. Do not infer sensitive personal attributes. Skip temporary conversational details unless they have clear long-term usefulness. Do not give advice or explanations. Do not store or retrieve anything — candidates only.`;
+
+/**
+ * Task 3.3 experiment: extract candidate long-term memories (not persisted)
+ * via responseSchema, then JSON.parse + Zod validation before returning.
+ */
+export async function generateMemoryExtraction(
+  message: string,
+): Promise<MemoryExtractAiResponse> {
+  const response = await gemini.models.generateContent({
+    model: env.GEMINI_MODEL,
+    contents: message,
+    config: {
+      systemInstruction: MEMORY_EXTRACT_SYSTEM_INSTRUCTION,
+      responseMimeType: 'application/json',
+      responseSchema: memoryExtractAiGeminiSchema,
+    },
+  });
+
+  if (!response.text) {
+    throw new MemoryExtractOutputError(
+      'parse',
+      'Gemini returned an empty memory extraction response',
+    );
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(response.text);
+  } catch (error) {
+    throw new MemoryExtractOutputError(
+      'parse',
+      'Gemini returned non-JSON memory extraction output',
+      error,
+    );
+  }
+
+  const validated = memoryExtractAiResponseSchema.safeParse(parsedJson);
+  if (!validated.success) {
+    throw new MemoryExtractOutputError(
+      'validation',
+      'Gemini memory extraction output failed Zod validation',
+      validated.error,
+    );
+  }
+
+  return validated.data;
+}
+
+export class MemoryExtractOutputError extends Error {
+  readonly kind: 'parse' | 'validation';
+  readonly causeDetail: unknown;
+
+  constructor(
+    kind: 'parse' | 'validation',
+    message: string,
+    causeDetail?: unknown,
+  ) {
+    super(message);
+    this.name = 'MemoryExtractOutputError';
+    this.kind = kind;
     this.causeDetail = causeDetail;
   }
 }

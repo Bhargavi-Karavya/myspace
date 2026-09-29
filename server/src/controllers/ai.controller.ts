@@ -1,18 +1,31 @@
 import { performance } from 'node:perf_hooks';
 import type { Request, Response } from 'express';
 import {
+  ClassificationOutputError,
+  ExtractionOutputError,
   generateJsonAnalysis,
+  generateMessageClassification,
+  generateMessageIntent,
   generateStructuredAnalysis,
+  generateStructuredExtraction,
   generateTestMessage,
   getGeminiErrorStatus,
+  IntentOutputError,
   isGeminiQuotaOrRateLimitError,
   JsonOutputError,
+  MemoryExtractOutputError,
   startMessageStream,
   StructuredOutputError,
 } from '../services/gemini.service.js';
+import { extractAndStoreMemories, forgetMemory, MemoryNotFoundError } from '../services/memory.service.js';
 import {
   chatRequestSchema,
+  classifyRequestSchema,
+  extractRequestSchema,
+  intentRequestSchema,
   jsonRequestSchema,
+  memoryExtractRequestSchema,
+  memoryIdParamSchema,
   structuredRequestSchema,
 } from '../validators/ai.validator.js';
 
@@ -172,10 +185,18 @@ export async function jsonWithAi(request: Request, response: Response) {
     response.status(200).json(analysis);
   } catch (error) {
     if (error instanceof JsonOutputError) {
-      console.error('JSON output failed:', {
-        message: error.message,
-        details: error.causeDetail,
-      });
+      if (error.kind === 'parse') {
+        console.error('AI JSON parse failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      } else {
+        console.error('AI JSON Zod validation failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      }
+
       response.status(500).json({
         error: 'Unable to generate a JSON response right now',
       });
@@ -202,6 +223,325 @@ export async function jsonWithAi(request: Request, response: Response) {
 
     response.status(500).json({
       error: 'Unable to generate a JSON response right now',
+    });
+  }
+}
+
+/**
+ * Task 2.4 — isolated structured-extraction experiment
+ * (does not affect /chat, /structured, or /json).
+ */
+export async function extractWithAi(request: Request, response: Response) {
+  const parsed = extractRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'message',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const extraction = await generateStructuredExtraction(parsed.data.message);
+    response.status(200).json(extraction);
+  } catch (error) {
+    if (error instanceof ExtractionOutputError) {
+      if (error.kind === 'parse') {
+        console.error('AI extraction JSON parse failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      } else {
+        console.error('AI extraction Zod validation failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      }
+
+      response.status(500).json({
+        error: 'Unable to extract structured data right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini extraction request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to extract structured data right now',
+    });
+  }
+}
+
+/**
+ * Task 2.5 — isolated classification experiment
+ * (does not affect /chat, /structured, /json, or /extract).
+ */
+export async function classifyWithAi(request: Request, response: Response) {
+  const parsed = classifyRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'message',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const classification = await generateMessageClassification(
+      parsed.data.message,
+    );
+    response.status(200).json(classification);
+  } catch (error) {
+    if (error instanceof ClassificationOutputError) {
+      if (error.kind === 'parse') {
+        console.error('AI classification JSON parse failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      } else {
+        console.error('AI classification Zod validation failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      }
+
+      response.status(500).json({
+        error: 'Unable to classify the message right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini classification request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to classify the message right now',
+    });
+  }
+}
+
+/**
+ * Task 2.6 — isolated intent-detection experiment
+ * (does not affect /chat, /structured, /json, /extract, or /classify).
+ */
+export async function intentWithAi(request: Request, response: Response) {
+  const parsed = intentRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'message',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const intent = await generateMessageIntent(parsed.data.message);
+    response.status(200).json(intent);
+  } catch (error) {
+    if (error instanceof IntentOutputError) {
+      if (error.kind === 'parse') {
+        console.error('AI intent JSON parse failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      } else {
+        console.error('AI intent Zod validation failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      }
+
+      response.status(500).json({
+        error: 'Unable to detect intent right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini intent request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to detect intent right now',
+    });
+  }
+}
+
+/**
+ * Task 3.3/3.5 — extract candidate memories and persist non-empty results.
+ */
+export async function memoryExtractWithAi(
+  request: Request,
+  response: Response,
+) {
+  const parsed = memoryExtractRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'message',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await extractAndStoreMemories(parsed.data.message);
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof MemoryExtractOutputError) {
+      if (error.kind === 'parse') {
+        console.error('AI memory extraction JSON parse failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      } else {
+        console.error('AI memory extraction Zod validation failed:', {
+          message: error.message,
+          details: error.causeDetail,
+        });
+      }
+
+      response.status(500).json({
+        error: 'Unable to extract memories right now',
+      });
+      return;
+    }
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      getGeminiErrorStatus(error) !== undefined
+    ) {
+      logGeminiTechnicalError('Gemini memory extraction request failed:', error);
+
+      if (isGeminiQuotaOrRateLimitError(error)) {
+        response.status(503).json({
+          error: SAFE_AI_UNAVAILABLE_ERROR,
+        });
+        return;
+      }
+
+      if (getGeminiErrorStatus(error) === 503) {
+        response.status(503).json({
+          error:
+            'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+          retryAfterSeconds: 5,
+        });
+        return;
+      }
+
+      response.status(500).json({
+        error: 'Unable to extract memories right now',
+      });
+      return;
+    }
+
+    // Database or other unexpected failures — never expose SQL/credentials.
+    console.error('Memory storage failed:', {
+      name: error instanceof Error ? error.name : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: 'Unable to save memories right now',
+    });
+  }
+}
+
+/**
+ * Phase 3.8 — explicitly forget (permanently delete) a memory by id.
+ */
+export async function deleteMemory(request: Request, response: Response) {
+  const parsed = memoryIdParamSchema.safeParse(request.params);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    await forgetMemory(parsed.data.id);
+    response.status(200).json({
+      message: 'Memory deleted successfully',
+    });
+  } catch (error) {
+    if (error instanceof MemoryNotFoundError) {
+      response.status(404).json({
+        error: 'Memory not found',
+      });
+      return;
+    }
+
+    console.error('Memory delete failed:', {
+      name: error instanceof Error ? error.name : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: 'Unable to delete memory right now',
     });
   }
 }

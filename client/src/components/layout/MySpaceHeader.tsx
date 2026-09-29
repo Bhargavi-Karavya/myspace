@@ -23,10 +23,10 @@ export function MySpaceHeader({
   trailingAction,
 }: MySpaceHeaderProps) {
   return (
-    <header className="sticky top-0 z-20 shrink-0 border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_88%,transparent)] backdrop-blur-md">
+    <header className="sticky top-0 z-20 shrink-0 border-b border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--bg)_72%,transparent)] backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
         {title ? (
-          <h1 className="font-sans text-lg font-bold tracking-[-0.03em] text-[var(--fg)]">
+          <h1 className="font-sans text-lg font-semibold tracking-[-0.02em] text-[var(--fg)]">
             {title}
           </h1>
         ) : (

@@ -19,12 +19,14 @@ export function ChatWelcome({
 }: ChatWelcomeProps) {
   return (
     <div className="flex min-h-full flex-col items-center justify-center px-4 py-6 sm:px-6">
-      <div className="w-full max-w-lg text-center">
+      <div className="welcome-enter w-full max-w-lg text-center">
         <div className="mb-5 flex justify-center">
-          <MySpaceLogo withWordmark={false} size="lg" />
+          <div className="rounded-full bg-[color-mix(in_srgb,var(--accent)_12%,transparent)] p-3">
+            <MySpaceLogo withWordmark={false} size="lg" />
+          </div>
         </div>
 
-        <h1 className="font-sans text-[1.65rem] font-bold tracking-[-0.03em] text-[var(--fg)] sm:text-[2rem]">
+        <h1 className="font-display text-[1.75rem] font-semibold tracking-[-0.02em] text-[var(--fg)] sm:text-[2.15rem]">
           What&apos;s on your mind?
         </h1>
         <p className="mx-auto mt-3 max-w-md text-[0.95rem] leading-relaxed text-[var(--fg-muted)]">
@@ -33,13 +35,18 @@ export function ChatWelcome({
         </p>
 
         <div className="mt-6 flex flex-wrap justify-center gap-2 sm:mt-8 sm:gap-2.5">
-          {SUGGESTIONS.map((suggestion) => (
-            <SuggestionChip
+          {SUGGESTIONS.map((suggestion, index) => (
+            <div
               key={suggestion}
-              label={suggestion}
-              onSelect={onSuggestionSelect}
-              disabled={disabled}
-            />
+              className="chip-enter"
+              style={{ animationDelay: `${120 + index * 70}ms` }}
+            >
+              <SuggestionChip
+                label={suggestion}
+                onSelect={onSuggestionSelect}
+                disabled={disabled}
+              />
+            </div>
           ))}
         </div>
       </div>

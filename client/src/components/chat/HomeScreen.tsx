@@ -184,8 +184,8 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
       />
       <div className="shrink-0">
         {error ? (
-          <div className="flex items-center justify-center gap-3 border-t border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-2">
-            <p className="text-xs text-red-500">{error}</p>
+          <div className="msg-enter flex items-center justify-center gap-3 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-4 py-2 backdrop-blur-md">
+            <p className="text-xs text-red-400">{error}</p>
             {!isQuotaBlocked ? (
               <button
                 type="button"

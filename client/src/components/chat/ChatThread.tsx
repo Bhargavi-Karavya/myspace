@@ -16,6 +16,9 @@ export function ChatThread({
 }: ChatThreadProps) {
   const endRef = useRef<HTMLDivElement>(null)
   const hasMessages = messages.length > 0
+  const lastMessage = messages[messages.length - 1]
+  const streamingId =
+    isSending && lastMessage?.role === 'model' ? lastMessage.id : null
 
   useEffect(() => {
     if (!hasMessages) return
@@ -36,15 +39,19 @@ export function ChatThread({
   return (
     <div className="scrollbar-myspace scroll-fade-y mx-auto flex w-full min-h-0 max-w-3xl flex-1 flex-col gap-4 overflow-y-auto px-4 py-5 sm:px-6">
       {messages.map((message) => (
-        <ChatMessageBubble key={message.id} message={message} />
+        <ChatMessageBubble
+          key={message.id}
+          message={message}
+          isStreaming={message.id === streamingId}
+        />
       ))}
 
-      {isSending ? (
-        <div className="flex items-center gap-2 px-1 text-sm text-[var(--fg-muted)]">
-          <span className="inline-flex gap-1">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)] [animation-delay:120ms]" />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)] [animation-delay:240ms]" />
+      {isSending && lastMessage?.role !== 'model' ? (
+        <div className="msg-enter flex items-center gap-2 px-1 text-sm text-[var(--fg-muted)]">
+          <span className="inline-flex gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_infinite]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_0.18s_infinite]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_0.36s_infinite]" />
           </span>
           Thinking…
         </div>

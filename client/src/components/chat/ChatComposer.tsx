@@ -5,7 +5,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from 'react'
-import { LuArrowRight, LuLoaderCircle, LuPaperclip } from 'react-icons/lu'
+import { LuArrowUp, LuLoaderCircle, LuPaperclip } from 'react-icons/lu'
 import type { ChatComposerStatus } from '../../types/chat'
 import { IconButton } from '../ui/IconButton'
 
@@ -28,7 +28,8 @@ export function ChatComposer({
   const labelId = useId()
   const isDisabled = status === 'disabled'
   const isSending = status === 'sending'
-  const canSend = value.trim().length > 0 && !isDisabled && !isSending
+  const hasText = value.trim().length > 0
+  const canSend = hasText && !isDisabled && !isSending
 
   useEffect(() => {
     const el = textareaRef.current
@@ -53,52 +54,56 @@ export function ChatComposer({
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-[var(--border)] bg-[var(--bg-elevated)] px-3 pb-3 pt-2 sm:px-4"
+      className="border-t border-[color-mix(in_srgb,var(--border)_65%,transparent)] bg-[color-mix(in_srgb,var(--bg)_55%,transparent)] px-3 pb-3 pt-3 backdrop-blur-xl sm:px-4"
     >
       <div
-        className={`mx-auto flex max-w-3xl items-end gap-1.5 rounded-2xl border bg-[var(--bg)] px-2 py-2 transition-[border-color,box-shadow] ${
-          isDisabled
-            ? 'border-[var(--border)] opacity-70'
-            : 'border-[var(--border)] focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_var(--composer-ring)]'
-        }`}
+        className="gemini-prompt mx-auto max-w-3xl"
+        data-active={hasText ? 'true' : 'false'}
+        data-busy={isSending ? 'true' : 'false'}
+        data-disabled={isDisabled ? 'true' : 'false'}
       >
-        <IconButton
-          label="Add context"
-          disabled={isDisabled || isSending}
-          className="mb-0.5 shrink-0"
-        >
-          <LuPaperclip size={18} strokeWidth={1.75} />
-        </IconButton>
+        <div className="gemini-prompt__border" aria-hidden="true">
+          <div className="gemini-prompt__spin" />
+        </div>
+        <div className="gemini-prompt__inner">
+          <IconButton
+            label="Add context"
+            disabled={isDisabled || isSending}
+            className="mb-0.5 shrink-0"
+          >
+            <LuPaperclip size={18} strokeWidth={1.75} />
+          </IconButton>
 
-        <label htmlFor={labelId} className="sr-only">
-          Message
-        </label>
-        <textarea
-          id={labelId}
-          ref={textareaRef}
-          rows={1}
-          value={value}
-          disabled={isDisabled || isSending}
-          placeholder="What's on your mind?"
-          onChange={(event) => onChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-          className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent py-2.5 pr-1 text-[0.95rem] leading-relaxed text-[var(--fg)] outline-none placeholder:text-[var(--fg-muted)] disabled:cursor-not-allowed"
-        />
+          <label htmlFor={labelId} className="sr-only">
+            Message
+          </label>
+          <textarea
+            id={labelId}
+            ref={textareaRef}
+            rows={1}
+            value={value}
+            disabled={isDisabled || isSending}
+            placeholder="Ask MySpace anything…"
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent py-2.5 pr-1 text-[0.95rem] leading-relaxed text-[var(--fg)] outline-none placeholder:text-[var(--fg-muted)] disabled:cursor-not-allowed"
+          />
 
-        <button
-          type="submit"
-          disabled={!canSend}
-          aria-label={isSending ? 'Sending' : 'Send message'}
-          className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-white transition-[opacity,filter] hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {isSending ? (
-            <LuLoaderCircle size={18} strokeWidth={2} className="animate-spin" />
-          ) : (
-            <LuArrowRight size={18} strokeWidth={1.75} />
-          )}
-        </button>
+          <button
+            type="submit"
+            disabled={!canSend}
+            aria-label={isSending ? 'Sending' : 'Send message'}
+            className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[#0b1220] transition-[opacity,transform,filter] duration-200 hover:brightness-110 hover:enabled:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
+          >
+            {isSending ? (
+              <LuLoaderCircle size={18} strokeWidth={2} className="animate-spin" />
+            ) : (
+              <LuArrowUp size={18} strokeWidth={2} />
+            )}
+          </button>
+        </div>
       </div>
-      <p className="mx-auto mt-1.5 max-w-3xl px-1 text-center text-[11px] text-[var(--fg-muted)]">
+      <p className="mx-auto mt-2 max-w-3xl px-1 text-center text-[11px] text-[var(--fg-muted)]">
         {hint}
       </p>
     </form>

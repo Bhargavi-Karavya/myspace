@@ -11,19 +11,19 @@ type MySpaceLogoProps = {
 }
 
 const markSizes = {
-  sm: 'h-7 w-7',
-  md: 'h-9 w-9',
-  lg: 'h-12 w-12',
+  sm: 'h-8 w-8',
+  md: 'h-10 w-10',
+  lg: 'h-14 w-14',
 } as const
 
 const fullLogoSizes = {
-  sm: 'h-7',
-  md: 'h-9',
-  lg: 'h-12',
+  sm: 'h-8',
+  md: 'h-10',
+  lg: 'h-14',
 } as const
 
 const wordSizes = {
-  sm: 'text-[1.05rem]',
+  sm: 'text-lg',
   md: 'text-xl',
   lg: 'text-2xl',
 } as const
@@ -39,15 +39,15 @@ export function MySpaceLogo({
   if (withWordmark && !stacked) {
     return (
       <span className={`inline-flex items-center ${className}`}>
-        {/* Official lockup — dark text works on light backgrounds */}
+        {/* Light: official lockup */}
         <img
           src={logoUrl}
           alt="MySpace"
           className={`${fullLogoSizes[size]} w-auto object-contain dark:hidden`}
           draggable={false}
         />
-        {/* Dark mode: icon mark + light CSS wordmark */}
-        <span className="hidden items-center gap-2.5 dark:inline-flex">
+        {/* Dark: original-color mark + white wordmark (same overall size) */}
+        <span className="hidden items-center gap-2.5 dark:inline-flex" aria-label="MySpace">
           <img
             src={markUrl}
             alt=""
@@ -55,7 +55,7 @@ export function MySpaceLogo({
             draggable={false}
           />
           <span
-            className={`font-sans tracking-[-0.03em] text-[var(--fg)] ${wordSizes[size]}`}
+            className={`font-sans tracking-[-0.03em] text-white ${wordSizes[size]}`}
             aria-hidden
           >
             <span className="font-medium">My</span>
@@ -80,7 +80,7 @@ export function MySpaceLogo({
       />
       {withWordmark ? (
         <span
-          className={`font-sans tracking-[-0.03em] text-[var(--fg)] ${wordSizes[size]}`}
+          className={`font-sans tracking-[-0.03em] text-[var(--fg)] dark:text-white ${wordSizes[size]}`}
           aria-label="MySpace"
         >
           <span className="font-medium">My</span>

@@ -34,7 +34,7 @@ export function BottomNavigation({
 }: BottomNavigationProps) {
   return (
     <nav
-      className="safe-bottom border-t border-[var(--border)] bg-[var(--bg-elevated)]"
+      className="safe-bottom border-t border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--bg)_78%,transparent)] backdrop-blur-xl"
       aria-label="Primary"
     >
       <div className="mx-auto grid max-w-3xl grid-cols-4 px-2 py-1.5 sm:px-4">
@@ -47,14 +47,15 @@ export function BottomNavigation({
               type="button"
               aria-current={active ? 'page' : undefined}
               onClick={() => onNavigate(item.id)}
-              className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium transition-colors ${
+              className={`nav-indicator flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-medium ${
                 active
                   ? 'text-[var(--accent)]'
                   : 'text-[var(--fg-muted)] hover:text-[var(--fg)]'
               }`}
+              data-active={active}
             >
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+                className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors duration-200 ${
                   active ? 'bg-[var(--accent-soft)]' : ''
                 }`}
               >

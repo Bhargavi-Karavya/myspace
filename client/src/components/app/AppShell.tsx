@@ -11,11 +11,12 @@ import { BottomNavigation } from '../navigation/BottomNavigation'
 import { ProfileScreen } from '../profile/ProfileScreen'
 
 function getPreferredTheme(): boolean {
-  if (typeof window === 'undefined') return false
+  if (typeof window === 'undefined') return true
   const stored = window.localStorage.getItem('myspace-theme')
   if (stored === 'dark') return true
   if (stored === 'light') return false
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
+  // AI Studio–style default: dark
+  return true
 }
 
 const PAGE_TITLES: Partial<Record<NavItemId, string>> = {
@@ -81,7 +82,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
+    <div className="studio-backdrop flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden">
       <MySpaceHeader
         title={PAGE_TITLES[activePage]}
         isDark={isDark}
