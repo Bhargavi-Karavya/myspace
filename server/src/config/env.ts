@@ -6,6 +6,8 @@ const envSchema = z.object({
   DATABASE_URL: z.url(),
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().min(1).default('gemini-3.6-flash'),
+  /** Phase 4.1 — isolated embedding experiment model (not used for chat/memory). */
+  GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
 });
 
 export const env = envSchema.parse(process.env);

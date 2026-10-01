@@ -17,15 +17,74 @@ import {
   startMessageStream,
   StructuredOutputError,
 } from '../services/gemini.service.js';
-import { extractAndStoreMemories, forgetMemory, MemoryNotFoundError } from '../services/memory.service.js';
+import {
+  EmbeddingDimensionMismatchError,
+  listStoredEmbeddingExperiments,
+  searchEmbeddingExperiments,
+  storeEmbeddingExperiment,
+} from '../services/embedding-experiment.service.js';
+import {
+  EmbeddingModelUnavailableError,
+  EmbeddingOutputError,
+  generateTextEmbeddings,
+} from '../services/embedding.service.js';
+import {
+  CosineSimilarityError,
+  cosineSimilarity,
+} from '../utils/cosine-similarity.js';
+import {
+  VectorMathError,
+  describeVectorStatistics,
+} from '../utils/vector-math.js';
+import {
+  SimilaritySearchError,
+  searchSimilarVectors,
+} from '../utils/similarity-search.js';
+import {
+  editMemory,
+  extractAndStoreMemories,
+  forgetMemory,
+  getMemories,
+  getMemory,
+  MemoryNotFoundError,
+} from '../services/memory.service.js';
+import {
+  generateEmbeddingForMemory,
+  MemoryEmbeddingDimensionMismatchError,
+  persistEmbeddingForMemory,
+  searchMemoriesBySimilarity,
+} from '../services/memory-embedding.service.js';
+import {
+  retrieveRelevantContext,
+} from '../services/rag-retrieval.service.js';
+import { QueryEmbeddingInputError } from '../services/query-embedding.service.js';
+import {
+  ConversationNotFoundError,
+  getConversation,
+  getConversationWithMessages,
+  getRecentConversations,
+  persistChatTurn,
+  toApiMessageRole,
+} from '../services/conversation.service.js';
 import {
   chatRequestSchema,
   classifyRequestSchema,
+  conversationIdParamSchema,
+  embeddingExperimentRequestSchema,
+  embeddingExperimentSearchRequestSchema,
+  embeddingInspectRequestSchema,
+  embeddingSearchRequestSchema,
+  embeddingSimilarityRequestSchema,
+  embeddingTestRequestSchema,
   extractRequestSchema,
   intentRequestSchema,
   jsonRequestSchema,
+  listMemoriesQuerySchema,
   memoryExtractRequestSchema,
   memoryIdParamSchema,
+  memorySearchRequestSchema,
+  patchMemoryRequestSchema,
+  ragRetrieveRequestSchema,
   structuredRequestSchema,
 } from '../validators/ai.validator.js';
 
@@ -104,6 +163,578 @@ export async function getAiTest(_request: Request, response: Response) {
     }
 
     response.status(502).json({ error: 'Unable to generate an AI response' });
+  }
+}
+
+/**
+ * Phase 4.1 — isolated embedding experiment (does not store vectors or touch memories).
+ */
+export async function embeddingTestWithAi(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingTestRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'texts',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await generateTextEmbeddings(parsed.data.texts);
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/test',
+        errorType: error.name,
+        textCount: parsed.data.texts.length,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/test',
+        errorType: error.name,
+        textCount: parsed.data.texts.length,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini embedding request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to generate embeddings right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.2 — pairwise cosine similarity of two text embeddings.
+ * Similarity is computed mathematically from vectors (not explained by Gemini).
+ */
+export async function embeddingSimilarityWithAi(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingSimilarityRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'texts',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  const texts = parsed.data.texts;
+
+  try {
+    const { embeddings } = await generateTextEmbeddings(texts);
+    const first = embeddings[0]!;
+    const second = embeddings[1]!;
+
+    const similarity = cosineSimilarity(first.embedding, second.embedding);
+
+    response.status(200).json({
+      texts: [first.text, second.text],
+      dimensions: first.dimensions,
+      similarity,
+    });
+  } catch (error) {
+    if (error instanceof CosineSimilarityError) {
+      console.error('Embedding similarity calculation failed:', {
+        endpoint: '/api/ai/embedding/similarity',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to compare embeddings right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/similarity',
+        errorType: error.name,
+        textCount: texts.length,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/similarity',
+        errorType: error.name,
+        textCount: texts.length,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini embedding similarity request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to compare embeddings right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.3 — inspect one embedding vector + local statistics (no storage).
+ */
+export async function embeddingInspectWithAi(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingInspectRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'text',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const { embeddings } = await generateTextEmbeddings([parsed.data.text]);
+    const item = embeddings[0]!;
+    const statistics = describeVectorStatistics(item.embedding);
+
+    response.status(200).json({
+      text: item.text,
+      dimensions: item.embedding.length,
+      vector: item.embedding,
+      statistics,
+    });
+  } catch (error) {
+    if (error instanceof VectorMathError) {
+      console.error('Embedding vector stats failed:', {
+        endpoint: '/api/ai/embedding/inspect',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to inspect embedding right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/inspect',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/inspect',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini embedding inspect request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to inspect embedding right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.4 — in-memory similarity search (no storage / no pgvector).
+ */
+export async function embeddingSearchWithAi(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingSearchRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'body',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  const { query, candidates, topK } = parsed.data;
+
+  try {
+    const textsToEmbed = [query, ...candidates.map((c) => c.text)];
+    const { embeddings } = await generateTextEmbeddings(textsToEmbed);
+
+    const queryEmbedding = embeddings[0]!;
+    const searchCandidates = candidates.map((candidate, index) => {
+      const item = embeddings[index + 1]!;
+      return {
+        id: candidate.id,
+        text: candidate.text,
+        vector: item.embedding,
+      };
+    });
+
+    const results = searchSimilarVectors(
+      queryEmbedding.embedding,
+      searchCandidates,
+      topK,
+    );
+
+    response.status(200).json({
+      query,
+      results,
+    });
+  } catch (error) {
+    if (error instanceof SimilaritySearchError) {
+      console.error('Embedding search ranking failed:', {
+        endpoint: '/api/ai/embedding/search',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to search embeddings right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/search',
+        errorType: error.name,
+        candidateCount: candidates.length,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/search',
+        errorType: error.name,
+        candidateCount: candidates.length,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini embedding search request failed:', error);
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    response.status(500).json({
+      error: 'Unable to search embeddings right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.5 — store one embedding in the isolated pgvector experiment table.
+ */
+export async function createEmbeddingExperimentHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingExperimentRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'text',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const record = await storeEmbeddingExperiment(parsed.data.text);
+    response.status(201).json({
+      id: record.id,
+      text: record.text,
+      dimensions: record.dimensions,
+    });
+  } catch (error) {
+    if (error instanceof EmbeddingDimensionMismatchError) {
+      console.error('Embedding experiment dimension mismatch:', {
+        endpoint: '/api/ai/embedding/experiment',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to store embedding experiment right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/experiment',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/experiment',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError(
+      'Gemini embedding experiment request failed:',
+      error,
+    );
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Embedding experiment storage failed:', {
+      endpoint: '/api/ai/embedding/experiment',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to store embedding experiment right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.5 — list stored embedding experiment rows (no vectors in response).
+ */
+export async function listEmbeddingExperimentsHandler(
+  _request: Request,
+  response: Response,
+) {
+  try {
+    const items = await listStoredEmbeddingExperiments();
+    response.status(200).json({ items });
+  } catch (error) {
+    console.error('Embedding experiment list failed:', {
+      endpoint: '/api/ai/embedding/experiment',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to list embedding experiments right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.6 — nearest-neighbor search in PostgreSQL via pgvector cosine distance.
+ */
+export async function searchEmbeddingExperimentsHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = embeddingExperimentSearchRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'body',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await searchEmbeddingExperiments(
+      parsed.data.query,
+      parsed.data.topK,
+    );
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof EmbeddingDimensionMismatchError) {
+      console.error('Embedding experiment search dimension mismatch:', {
+        endpoint: '/api/ai/embedding/experiment/search',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to search embedding experiments right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/embedding/experiment/search',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Embedding output failed:', {
+        endpoint: '/api/ai/embedding/experiment/search',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to generate embeddings right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError(
+      'Gemini embedding experiment search request failed:',
+      error,
+    );
+
+    if (isGeminiQuotaOrRateLimitError(error)) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Embedding experiment search failed:', {
+      endpoint: '/api/ai/embedding/experiment/search',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to search embedding experiments right now',
+    });
   }
 }
 
@@ -449,17 +1080,11 @@ export async function memoryExtractWithAi(
     response.status(200).json(result);
   } catch (error) {
     if (error instanceof MemoryExtractOutputError) {
-      if (error.kind === 'parse') {
-        console.error('AI memory extraction JSON parse failed:', {
-          message: error.message,
-          details: error.causeDetail,
-        });
-      } else {
-        console.error('AI memory extraction Zod validation failed:', {
-          message: error.message,
-          details: error.causeDetail,
-        });
-      }
+      // Never log user messages, secrets, or Gemini payload content.
+      console.error('AI memory extraction failed:', {
+        endpoint: '/api/ai/memory/extract',
+        errorType: error.kind,
+      });
 
       response.status(500).json({
         error: 'Unable to extract memories right now',
@@ -497,11 +1122,566 @@ export async function memoryExtractWithAi(
 
     // Database or other unexpected failures — never expose SQL/credentials.
     console.error('Memory storage failed:', {
+      endpoint: '/api/ai/memory/extract',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to save memories right now',
+    });
+  }
+}
+
+/**
+ * Phase 3.10 — list stored memories (optional ?category= filter).
+ */
+export async function listMemoriesHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = listMemoriesQuerySchema.safeParse(request.query);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'category',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const memories = await getMemories(parsed.data.category);
+    response.status(200).json({ memories });
+  } catch (error) {
+    console.error('Memory list failed:', {
       name: error instanceof Error ? error.name : undefined,
       message: error instanceof Error ? error.message : String(error),
     });
     response.status(500).json({
-      error: 'Unable to save memories right now',
+      error: 'Unable to list memories right now',
+    });
+  }
+}
+
+/**
+ * Phase 3.10 — get one stored memory by id.
+ */
+export async function getMemoryHandler(request: Request, response: Response) {
+  const parsed = memoryIdParamSchema.safeParse(request.params);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const memory = await getMemory(parsed.data.id);
+    response.status(200).json({ memory });
+  } catch (error) {
+    if (error instanceof MemoryNotFoundError) {
+      response.status(404).json({
+        error: 'Memory not found',
+      });
+      return;
+    }
+
+    console.error('Memory get failed:', {
+      name: error instanceof Error ? error.name : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: 'Unable to get memory right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.7 — generate an embedding for an existing memory's content (not persisted).
+ */
+export async function memoryEmbeddingTestHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = memoryIdParamSchema.safeParse(request.params);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await generateEmbeddingForMemory(parsed.data.id);
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof MemoryNotFoundError) {
+      response.status(404).json({
+        error: 'Memory not found',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/memory/:id/embedding/test',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Memory embedding generation failed:', {
+        endpoint: '/api/ai/memory/:id/embedding/test',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to generate memory embedding right now',
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini memory embedding request failed:', error);
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      (error instanceof TypeError &&
+        /fetch failed|network|timeout/i.test(error.message))
+    ) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Memory embedding test failed:', {
+      endpoint: '/api/ai/memory/:id/embedding/test',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to generate memory embedding right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.9–4.12 — semantic similarity Top-K search over memories.embedding.
+ * Optional `category` is validated by Zod and filtered in PostgreSQL.
+ * `topK` becomes SQL LIMIT (default/max from MEMORY_SEARCH_* constants).
+ */
+export async function searchMemoriesHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = memorySearchRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'body',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await searchMemoriesBySimilarity(
+      parsed.data.query,
+      parsed.data.topK,
+      parsed.data.category,
+    );
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof MemoryEmbeddingDimensionMismatchError) {
+      console.error('Memory similarity search dimension mismatch:', {
+        endpoint: '/api/ai/memory/search',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to search memories right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/memory/search',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Memory similarity query embedding failed:', {
+        endpoint: '/api/ai/memory/search',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    logGeminiTechnicalError(
+      'Gemini memory similarity search request failed:',
+      error,
+    );
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      (error instanceof TypeError &&
+        /fetch failed|network|timeout/i.test(error.message))
+    ) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Memory similarity search failed:', {
+      endpoint: '/api/ai/memory/search',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to search memories right now',
+    });
+  }
+}
+
+/**
+ * Phase 5.2/5.4 — RAG retrieval pipeline (query → embed → context candidates).
+ * Maps internal `memories` to public `results`. Does not generate answers.
+ */
+export async function ragRetrieveHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = ragRetrieveRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'body',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await retrieveRelevantContext({
+      query: parsed.data.query,
+      topK: parsed.data.topK,
+      category: parsed.data.category,
+    });
+    // Public API keeps `results`; service uses `memories` (Phase 5.4).
+    response.status(200).json({
+      query: result.query,
+      results: result.memories,
+    });
+  } catch (error) {
+    if (error instanceof QueryEmbeddingInputError) {
+      response.status(400).json({
+        error: 'Invalid request',
+        details: [{ field: 'query', message: error.message }],
+      });
+      return;
+    }
+
+    if (error instanceof MemoryEmbeddingDimensionMismatchError) {
+      console.error('RAG retrieval dimension mismatch:', {
+        endpoint: '/api/ai/rag/retrieve',
+        errorType: error.name,
+      });
+      response.status(500).json({
+        error: 'Unable to retrieve memories right now',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/rag/retrieve',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('RAG retrieval query embedding failed:', {
+        endpoint: '/api/ai/rag/retrieve',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    logGeminiTechnicalError('Gemini RAG retrieval request failed:', error);
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      (error instanceof TypeError &&
+        /fetch failed|network|timeout/i.test(error.message))
+    ) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('RAG retrieval failed:', {
+      endpoint: '/api/ai/rag/retrieve',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to retrieve memories right now',
+    });
+  }
+}
+
+/**
+ * Phase 4.8 — generate and persist an embedding for an existing memory.
+ */
+export async function persistMemoryEmbeddingHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = memoryIdParamSchema.safeParse(request.params);
+
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const result = await persistEmbeddingForMemory(parsed.data.id);
+    response.status(200).json(result);
+  } catch (error) {
+    if (error instanceof MemoryNotFoundError) {
+      response.status(404).json({
+        error: 'Memory not found',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable:', {
+        endpoint: '/api/ai/memory/:id/embedding',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Memory embedding generation failed:', {
+        endpoint: '/api/ai/memory/:id/embedding',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    logGeminiTechnicalError(
+      'Gemini memory embedding persist request failed:',
+      error,
+    );
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      (error instanceof TypeError &&
+        /fetch failed|network|timeout/i.test(error.message))
+    ) {
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Memory embedding persistence failed:', {
+      endpoint: '/api/ai/memory/:id/embedding',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to store memory embedding right now',
+    });
+  }
+}
+
+/**
+ * Phase 3.10 / 4.13 — edit content, category, and/or importance.
+ * Content changes regenerate the embedding before the row is written.
+ */
+export async function patchMemoryHandler(
+  request: Request,
+  response: Response,
+) {
+  const params = memoryIdParamSchema.safeParse(request.params);
+  if (!params.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: params.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  const body = patchMemoryRequestSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: body.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'body',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const memory = await editMemory(params.data.id, body.data);
+    response.status(200).json({ memory });
+  } catch (error) {
+    if (error instanceof MemoryNotFoundError) {
+      response.status(404).json({
+        error: 'Memory not found',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingModelUnavailableError) {
+      console.error('Embedding model unavailable during memory patch:', {
+        endpoint: '/api/ai/memory/:id',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error:
+          'The configured embedding model is unavailable. Check GEMINI_EMBEDDING_MODEL and try again.',
+      });
+      return;
+    }
+
+    if (error instanceof EmbeddingOutputError) {
+      console.error('Memory embedding regeneration failed during patch:', {
+        endpoint: '/api/ai/memory/:id',
+        errorType: error.name,
+      });
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    logGeminiTechnicalError(
+      'Gemini memory embedding regeneration during patch failed:',
+      error,
+    );
+
+    if (
+      isGeminiQuotaOrRateLimitError(error) ||
+      (error instanceof TypeError &&
+        /fetch failed|network|timeout/i.test(error.message))
+    ) {
+      // Content was not written — old content + old embedding remain consistent.
+      response.status(503).json({
+        error: SAFE_AI_UNAVAILABLE_ERROR,
+      });
+      return;
+    }
+
+    if (getGeminiErrorStatus(error) === 503) {
+      response.status(503).json({
+        error:
+          'Gemini is busy right now (high demand). Your request is fine — please try again in a few seconds.',
+        retryAfterSeconds: 5,
+      });
+      return;
+    }
+
+    console.error('Memory patch failed:', {
+      name: error instanceof Error ? error.name : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: 'Unable to update memory right now',
     });
   }
 }
@@ -546,6 +1726,82 @@ export async function deleteMemory(request: Request, response: Response) {
   }
 }
 
+/**
+ * List recent conversations for the Conversations screen.
+ */
+export async function listConversationsHandler(
+  _request: Request,
+  response: Response,
+) {
+  try {
+    const rows = await getRecentConversations(50);
+    response.status(200).json({
+      conversations: rows.map((row) => ({
+        id: row.id,
+        title: row.title ?? 'Untitled conversation',
+        preview: row.preview ?? '',
+        updatedAt: row.updatedAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    console.error('List conversations failed:', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to load conversations right now',
+    });
+  }
+}
+
+/**
+ * Load one conversation with messages for restoring the chat thread.
+ */
+export async function getConversationHandler(
+  request: Request,
+  response: Response,
+) {
+  const parsed = conversationIdParamSchema.safeParse(request.params);
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const { conversation, messages } = await getConversationWithMessages(
+      parsed.data.id,
+    );
+    response.status(200).json({
+      id: conversation.id,
+      title: conversation.title ?? 'Untitled conversation',
+      updatedAt: conversation.updatedAt.toISOString(),
+      messages: messages.map((message) => ({
+        id: message.id,
+        role: toApiMessageRole(message.role),
+        content: message.content,
+        createdAt: message.createdAt.toISOString(),
+      })),
+    });
+  } catch (error) {
+    if (error instanceof ConversationNotFoundError) {
+      response.status(404).json({ error: 'Conversation not found' });
+      return;
+    }
+
+    console.error('Get conversation failed:', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to load conversation right now',
+    });
+  }
+}
+
 export async function chatWithAi(request: Request, response: Response) {
   const parsed = chatRequestSchema.safeParse(request.body);
 
@@ -558,6 +1814,35 @@ export async function chatWithAi(request: Request, response: Response) {
       })),
     });
     return;
+  }
+
+  const lastUserMessage = [...parsed.data.messages]
+    .reverse()
+    .find((message) => message.role === 'user');
+
+  if (!lastUserMessage) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: [
+        {
+          field: 'messages',
+          message: 'At least one user message is required',
+        },
+      ],
+    });
+    return;
+  }
+
+  if (parsed.data.conversationId) {
+    try {
+      await getConversation(parsed.data.conversationId);
+    } catch (error) {
+      if (error instanceof ConversationNotFoundError) {
+        response.status(404).json({ error: 'Conversation not found' });
+        return;
+      }
+      throw error;
+    }
   }
 
   const requestStartedAt = performance.now();
@@ -599,7 +1884,9 @@ export async function chatWithAi(request: Request, response: Response) {
 
   let chunkCount = 0;
   let charCount = 0;
+  let assistantText = '';
   let firstChunkLogged = false;
+  let conversationId = parsed.data.conversationId;
 
   try {
     for await (const chunk of stream) {
@@ -621,7 +1908,34 @@ export async function chatWithAi(request: Request, response: Response) {
 
       chunkCount += 1;
       charCount += text.length;
+      assistantText += text;
       writeSse(response, { text });
+    }
+
+    // Persist even if the client navigated away mid-stream — as long as we
+    // have a complete-enough assistant reply, Recent Chats should still update.
+    if (assistantText.trim() && lastUserMessage.content.trim()) {
+      try {
+        const persisted = await persistChatTurn({
+          conversationId,
+          userContent: lastUserMessage.content,
+          assistantContent: assistantText,
+        });
+        conversationId = persisted.conversationId;
+        if (!response.writableEnded && !clientDisconnected) {
+          writeSse(response, { conversationId });
+        }
+      } catch (persistError) {
+        console.error('Chat persistence failed:', {
+          errorType:
+            persistError instanceof Error ? persistError.name : 'unknown',
+          message:
+            persistError instanceof Error
+              ? persistError.message
+              : String(persistError),
+        });
+        // Do not fail the chat reply if persistence fails.
+      }
     }
 
     if (!response.writableEnded) {
@@ -673,6 +1987,21 @@ export async function chatWithAi(request: Request, response: Response) {
       console.warn(
         `Gemini 503 mid-stream after ${charCount} char(s); finishing with partial reply`,
       );
+      if (assistantText.trim() && lastUserMessage.content.trim()) {
+        try {
+          const persisted = await persistChatTurn({
+            conversationId,
+            userContent: lastUserMessage.content,
+            assistantContent: assistantText,
+          });
+          writeSse(response, { conversationId: persisted.conversationId });
+        } catch (persistError) {
+          console.error('Chat persistence failed after partial reply:', {
+            errorType:
+              persistError instanceof Error ? persistError.name : 'unknown',
+          });
+        }
+      }
       writeSse(response, { done: true });
       response.end();
       return;

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { ChatMessage } from '../../types/chat'
-import { ChatMessageBubble } from './ChatMessage'
+import { ChatMessageBubble, ChatThinkingBubble } from './ChatMessage'
 import { ChatWelcome } from './ChatWelcome'
 
 type ChatThreadProps = {
@@ -19,13 +19,14 @@ export function ChatThread({
   const lastMessage = messages[messages.length - 1]
   const streamingId =
     isSending && lastMessage?.role === 'model' ? lastMessage.id : null
+  const showThinking = isSending && lastMessage?.role !== 'model'
 
   useEffect(() => {
-    if (!hasMessages) return
+    if (!hasMessages && !showThinking) return
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, isSending, hasMessages])
+  }, [messages, isSending, hasMessages, showThinking])
 
-  if (!hasMessages) {
+  if (!hasMessages && !showThinking) {
     return (
       <div className="scrollbar-myspace scroll-fade-y min-h-0 flex-1 overflow-y-auto">
         <ChatWelcome
@@ -46,16 +47,7 @@ export function ChatThread({
         />
       ))}
 
-      {isSending && lastMessage?.role !== 'model' ? (
-        <div className="msg-enter flex items-center gap-2 px-1 text-sm text-[var(--fg-muted)]">
-          <span className="inline-flex gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_infinite]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_0.18s_infinite]" />
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)] [animation:thinking-pulse_1.1s_ease-in-out_0.36s_infinite]" />
-          </span>
-          Thinking…
-        </div>
-      ) : null}
+      {showThinking ? <ChatThinkingBubble /> : null}
 
       <div ref={endRef} />
     </div>

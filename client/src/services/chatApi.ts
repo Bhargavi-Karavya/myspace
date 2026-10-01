@@ -1,6 +1,6 @@
 import type { ChatMessage, MessageRole } from '../types/chat'
+import type { ConversationPreview } from '../data/sampleConversations'
 import {
-  getCachedChatResponse,
   getInflightChatRequest,
   setCachedChatResponse,
   setInflightChatRequest,
@@ -26,10 +26,36 @@ export class ChatRequestError extends Error {
   }
 }
 
+export type ChatTurnResult = ChatRequestResult & {
+  conversationId?: string
+}
+
 type StreamEvent =
   | { text: string }
   | { done: true }
+  | { conversationId: string }
   | { error: string; retryAfterSeconds?: number; status?: number }
+
+type StoredConversationMessage = {
+  id: string
+  role: MessageRole
+  content: string
+  createdAt: string
+}
+
+type StoredConversationDetail = {
+  id: string
+  title: string
+  updatedAt: string
+  messages: StoredConversationMessage[]
+}
+
+type StoredConversationListItem = {
+  id: string
+  title: string
+  preview: string
+  updatedAt: string
+}
 
 function toApiMessages(
   messages: Array<Pick<ChatMessage, 'role' | 'content'>>,
@@ -44,6 +70,29 @@ function sleep(ms: number) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms)
   })
+}
+
+function formatRelativeUpdatedAt(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfThatDay = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  )
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfThatDay.getTime()) / (24 * 60 * 60 * 1000),
+  )
+
+  if (dayDiff === 0) return 'Today'
+  if (dayDiff === 1) return 'Yesterday'
+  if (dayDiff > 1 && dayDiff < 7) {
+    return date.toLocaleDateString(undefined, { weekday: 'short' })
+  }
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 async function readErrorPayload(response: Response): Promise<ChatApiError | null> {
@@ -89,15 +138,19 @@ function parseSseChunk(buffer: string): { events: StreamEvent[]; rest: string } 
 
 async function requestChatResponseOnce(
   messages: ApiChatMessage[],
+  conversationId: string | undefined,
   onChunk?: (text: string) => void,
-): Promise<ChatRequestResult> {
+): Promise<ChatTurnResult> {
   const response = await fetch('/api/ai/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({
+      messages,
+      ...(conversationId ? { conversationId } : {}),
+    }),
   })
 
   if (!response.ok) {
@@ -125,6 +178,7 @@ async function requestChatResponseOnce(
   const decoder = new TextDecoder()
   let buffer = ''
   let message = ''
+  let persistedConversationId = conversationId
 
   while (true) {
     const { done, value } = await reader.read()
@@ -136,13 +190,16 @@ async function requestChatResponseOnce(
 
     for (const event of parsed.events) {
       if ('error' in event && typeof event.error === 'string') {
-        // Keep any tokens already shown; only fail hard when nothing arrived.
         if (message.trim()) {
           console.warn('[chat] stream error after partial reply; keeping text', {
             chars: message.length,
             error: event.error,
           })
-          return { message, fromCache: false }
+          return {
+            message,
+            fromCache: false,
+            conversationId: persistedConversationId,
+          }
         }
 
         throw new ChatRequestError(event.error, {
@@ -152,6 +209,14 @@ async function requestChatResponseOnce(
               ? event.retryAfterSeconds
               : undefined,
         })
+      }
+
+      if (
+        'conversationId' in event &&
+        typeof event.conversationId === 'string' &&
+        event.conversationId.length > 0
+      ) {
+        persistedConversationId = event.conversationId
       }
 
       if ('text' in event && typeof event.text === 'string' && event.text.length > 0) {
@@ -165,30 +230,38 @@ async function requestChatResponseOnce(
         }
 
         console.log('[chat] stream complete', { chars: message.length })
-        return { message, fromCache: false }
+        return {
+          message,
+          fromCache: false,
+          conversationId: persistedConversationId,
+        }
       }
     }
   }
 
-  // Stream ended without an explicit done frame — still accept accumulated text.
   if (!message.trim()) {
     throw new Error('Unable to generate a response right now')
   }
 
   console.log('[chat] stream ended', { chars: message.length })
-  return { message, fromCache: false }
+  return {
+    message,
+    fromCache: false,
+    conversationId: persistedConversationId,
+  }
 }
 
 async function requestChatResponse(
   messages: ApiChatMessage[],
+  conversationId: string | undefined,
   onChunk?: (text: string) => void,
-): Promise<ChatRequestResult> {
+): Promise<ChatTurnResult> {
   const maxAttempts = 3
   let lastError: unknown
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await requestChatResponseOnce(messages, onChunk)
+      return await requestChatResponseOnce(messages, conversationId, onChunk)
     } catch (error) {
       lastError = error
       const busyError =
@@ -216,38 +289,82 @@ async function requestChatResponse(
 }
 
 /**
- * Calls the chat API once per unique conversation payload.
- * Identical message histories reuse a cached reply (memory + localStorage)
- * and concurrent duplicates share one in-flight request.
+ * Always hits the chat API so each turn can be persisted server-side.
+ * Local response cache is not used here — a cache hit would skip saving.
  */
 export async function sendChatMessages(
   messages: Array<Pick<ChatMessage, 'role' | 'content'>>,
-  onChunk?: (text: string) => void,
-): Promise<ChatRequestResult> {
+  options?: {
+    conversationId?: string
+    onChunk?: (text: string) => void
+  },
+): Promise<ChatTurnResult> {
   const apiMessages = toApiMessages(messages)
-
-  const cached = getCachedChatResponse(apiMessages)
-  if (cached) {
-    console.log('[chat] cache hit', { chars: cached.length })
-    onChunk?.(cached)
-    return { message: cached, fromCache: true }
-  }
+  const conversationId = options?.conversationId
+  const onChunk = options?.onChunk
 
   const inflight = getInflightChatRequest(apiMessages)
   if (inflight) {
     const result = await inflight
-    console.log('[chat] joined in-flight request', { chars: result.message.length })
-    return { message: result.message, fromCache: true }
+    console.log('[chat] joined in-flight request', {
+      chars: result.message.length,
+    })
+    onChunk?.(result.message)
+    return {
+      message: result.message,
+      fromCache: true,
+      conversationId: result.conversationId ?? conversationId,
+    }
   }
 
-  const request = requestChatResponse(apiMessages, onChunk)
+  const request = requestChatResponse(apiMessages, conversationId, onChunk)
   setInflightChatRequest(apiMessages, request)
 
   const result = await request
   setCachedChatResponse(apiMessages, result.message)
   return {
     message: result.message,
-    fromCache: result.fromCache,
+    fromCache: false,
+    conversationId: result.conversationId,
+  }
+}
+
+export async function fetchRecentConversations(): Promise<ConversationPreview[]> {
+  const response = await fetch('/api/ai/conversations')
+  if (!response.ok) {
+    throw new Error('Unable to load conversations right now')
+  }
+
+  const payload = (await response.json()) as {
+    conversations?: StoredConversationListItem[]
+  }
+
+  return (payload.conversations ?? []).map((row) => ({
+    id: row.id,
+    title: row.title || 'Untitled conversation',
+    preview: row.preview || 'No messages yet',
+    updatedAt: formatRelativeUpdatedAt(row.updatedAt),
+  }))
+}
+
+export async function fetchConversation(
+  id: string,
+): Promise<{ id: string; title: string; messages: ChatMessage[] }> {
+  const response = await fetch(`/api/ai/conversations/${id}`)
+  if (!response.ok) {
+    throw new Error('Unable to load conversation right now')
+  }
+
+  const payload = (await response.json()) as StoredConversationDetail
+
+  return {
+    id: payload.id,
+    title: payload.title,
+    messages: (payload.messages ?? []).map((message) => ({
+      id: message.id,
+      role: message.role,
+      content: message.content,
+    })),
   }
 }
 

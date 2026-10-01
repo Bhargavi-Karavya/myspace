@@ -1,6 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { LuPlus, LuSparkles } from 'react-icons/lu'
 import { EXAMPLE_MESSAGES } from '../../data/exampleMessages'
+import type { ConversationPreview } from '../../data/sampleConversations'
+import {
+  fetchConversation,
+  fetchRecentConversations,
+} from '../../services/chatApi'
 import type { ChatMessage } from '../../types/chat'
 import type { NavItemId } from '../../types/navigation'
 import { HomeScreen } from '../chat/HomeScreen'
@@ -27,6 +32,7 @@ const PAGE_TITLES: Partial<Record<NavItemId, string>> = {
 
 type HomeSeed = {
   id: number
+  conversationId: string | null
   messages: ChatMessage[]
 }
 
@@ -35,26 +41,77 @@ export function AppShell() {
   const [isDark, setIsDark] = useState(getPreferredTheme)
   const [homeSeed, setHomeSeed] = useState<HomeSeed>({
     id: 0,
+    conversationId: null,
     messages: [],
   })
+  const [conversations, setConversations] = useState<ConversationPreview[]>([])
+  const [conversationsLoading, setConversationsLoading] = useState(false)
+  const [conversationsError, setConversationsError] = useState<string | null>(
+    null,
+  )
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark)
     window.localStorage.setItem('myspace-theme', isDark ? 'dark' : 'light')
   }, [isDark])
 
+  const loadConversations = useCallback(async () => {
+    setConversationsLoading(true)
+    setConversationsError(null)
+    try {
+      const rows = await fetchRecentConversations()
+      setConversations(rows)
+    } catch (error) {
+      setConversationsError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to load conversations right now',
+      )
+    } finally {
+      setConversationsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activePage === 'conversations') {
+      void loadConversations()
+    }
+  }, [activePage, loadConversations])
+
   function toggleTheme() {
     setIsDark((prev) => !prev)
   }
 
   function goHomeFresh() {
-    setHomeSeed({ id: Date.now(), messages: [] })
+    setHomeSeed({ id: Date.now(), conversationId: null, messages: [] })
     setActivePage('home')
   }
 
   function goHomeWithExample() {
-    setHomeSeed({ id: Date.now(), messages: EXAMPLE_MESSAGES })
+    setHomeSeed({
+      id: Date.now(),
+      conversationId: null,
+      messages: EXAMPLE_MESSAGES,
+    })
     setActivePage('home')
+  }
+
+  async function openConversation(conversation: ConversationPreview) {
+    try {
+      const detail = await fetchConversation(conversation.id)
+      setHomeSeed({
+        id: Date.now(),
+        conversationId: detail.id,
+        messages: detail.messages,
+      })
+      setActivePage('home')
+    } catch (error) {
+      setConversationsError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to open conversation right now',
+      )
+    }
   }
 
   let trailingAction:
@@ -98,11 +155,24 @@ export function AppShell() {
           <HomeScreen
             key={homeSeed.id}
             initialMessages={homeSeed.messages}
+            conversationId={homeSeed.conversationId}
+            onConversationIdChange={(conversationId) => {
+              setHomeSeed((current) =>
+                current.conversationId === conversationId
+                  ? current
+                  : { ...current, conversationId },
+              )
+            }}
           />
         ) : null}
         {activePage === 'conversations' ? (
           <ConversationsScreen
-            onOpenConversation={goHomeWithExample}
+            conversations={conversations}
+            loading={conversationsLoading}
+            error={conversationsError}
+            onOpenConversation={(conversation) => {
+              void openConversation(conversation)
+            }}
             onStartNew={goHomeFresh}
           />
         ) : null}

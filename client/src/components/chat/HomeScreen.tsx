@@ -10,16 +10,29 @@ function createId() {
 
 type HomeScreenProps = {
   initialMessages?: ChatMessage[]
+  conversationId?: string | null
+  onConversationIdChange?: (conversationId: string) => void
 }
 
-export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
+export function HomeScreen({
+  initialMessages = [],
+  conversationId = null,
+  onConversationIdChange,
+}: HomeScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
+  const [activeConversationId, setActiveConversationId] = useState<
+    string | null
+  >(conversationId)
   const [draft, setDraft] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [usedCache, setUsedCache] = useState(false)
   const [quotaBlockedUntil, setQuotaBlockedUntil] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    setActiveConversationId(conversationId)
+  }, [conversationId])
 
   useEffect(() => {
     if (!quotaBlockedUntil) return
@@ -41,6 +54,12 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
     : 0
   const isQuotaBlocked = quotaSecondsLeft > 0
 
+  function rememberConversationId(nextId: string | undefined) {
+    if (!nextId || nextId === activeConversationId) return
+    setActiveConversationId(nextId)
+    onConversationIdChange?.(nextId)
+  }
+
   async function requestModelReply(conversation: ChatMessage[]) {
     if (isQuotaBlocked) {
       setError(
@@ -59,29 +78,34 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
     try {
       const result = await sendChatMessages(
         conversation.map(({ role, content }) => ({ role, content })),
-        (chunk) => {
-          if (!startedModelMessage) {
-            startedModelMessage = true
-            setMessages((current) => [
-              ...current,
-              {
-                id: modelMessageId,
-                role: 'model',
-                content: chunk,
-              },
-            ])
-            return
-          }
+        {
+          conversationId: activeConversationId ?? undefined,
+          onChunk: (chunk) => {
+            if (!startedModelMessage) {
+              startedModelMessage = true
+              setMessages((current) => [
+                ...current,
+                {
+                  id: modelMessageId,
+                  role: 'model',
+                  content: chunk,
+                },
+              ])
+              return
+            }
 
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === modelMessageId
-                ? { ...message, content: message.content + chunk }
-                : message,
-            ),
-          )
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === modelMessageId
+                  ? { ...message, content: message.content + chunk }
+                  : message,
+              ),
+            )
+          },
         },
       )
+
+      rememberConversationId(result.conversationId)
 
       if (!startedModelMessage) {
         setMessages((current) => [
@@ -103,7 +127,6 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
       }
       setUsedCache(result.fromCache)
     } catch (sendError) {
-      // Keep any streamed text — don't erase a partial reply when Gemini hiccups.
       if (sendError instanceof ChatRequestError && sendError.status === 429) {
         const waitSeconds = sendError.retryAfterSeconds ?? 60
         setQuotaBlockedUntil(Date.now() + waitSeconds * 1000)
@@ -120,8 +143,9 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
               'Gemini is busy right now. Please try again in a few seconds.',
           )
         } else {
-          // Partial reply already visible — soft note only.
-          setError('Reply may be incomplete (Gemini was briefly busy). You can resend to continue.')
+          setError(
+            'Reply may be incomplete (Gemini was briefly busy). You can resend to continue.',
+          )
         }
       } else {
         if (startedModelMessage) {
@@ -218,7 +242,9 @@ export function HomeScreen({ initialMessages = [] }: HomeScreenProps) {
               ? `Quota pause · ${quotaSecondsLeft}s left · identical old messages can still reuse saved replies`
               : usedCache
                 ? 'Reused a saved reply for this exact message — Gemini was not called again'
-                : 'Connected to MySpace chat API · identical messages reuse a saved reply'
+                : activeConversationId
+                  ? 'Saving this chat to Recent conversations'
+                  : 'Connected to MySpace chat API · chats are saved after each reply'
           }
         />
       </div>

@@ -11,3 +11,6 @@ app.use(express.json());
 app.use('/api/health', healthRouter);
 app.use('/api/ai', aiRouter);
 app.use(errorHandler);
+
+/** Default export for Vercel Express detection. */
+export default app;

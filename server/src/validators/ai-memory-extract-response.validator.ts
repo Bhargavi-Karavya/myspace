@@ -8,7 +8,11 @@ export {
 } from '../memory/categories.js';
 
 export const memoryCandidateSchema = z.object({
-  content: z.string().min(1),
+  content: z
+    .string()
+    .trim()
+    .min(1)
+    .max(5000, 'Content must be at most 5000 characters'),
   category: memoryCategorySchema,
   /** Future usefulness 0–1 (metadata, not confidence). */
   importance: z.number().min(0).max(1),

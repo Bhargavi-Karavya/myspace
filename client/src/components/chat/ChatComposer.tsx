@@ -62,10 +62,8 @@ export function ChatComposer({
         data-busy={isSending ? 'true' : 'false'}
         data-disabled={isDisabled ? 'true' : 'false'}
       >
-        <div className="gemini-prompt__border" aria-hidden="true">
-          <div className="gemini-prompt__spin" />
-        </div>
-        <div className="gemini-prompt__inner">
+        <div className="gemini-prompt__glow" aria-hidden="true" />
+        <div className="gemini-prompt__shell">
           <IconButton
             label="Add context"
             disabled={isDisabled || isSending}
@@ -93,7 +91,7 @@ export function ChatComposer({
             type="submit"
             disabled={!canSend}
             aria-label={isSending ? 'Sending' : 'Send message'}
-            className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[#0b1220] transition-[opacity,transform,filter] duration-200 hover:brightness-110 hover:enabled:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
+            className="gemini-prompt__send mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] transition-[opacity,transform,filter] duration-200 hover:brightness-110 hover:enabled:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-35"
           >
             {isSending ? (
               <LuLoaderCircle size={18} strokeWidth={2} className="animate-spin" />

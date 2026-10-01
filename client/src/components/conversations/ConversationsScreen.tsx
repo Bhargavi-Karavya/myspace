@@ -3,13 +3,16 @@ import {
   LuChevronRight,
   LuHeart,
   LuInfinity,
+  LuMessageSquare,
   LuPlus,
   LuTrendingUp,
 } from 'react-icons/lu'
 import type { ConversationPreview } from '../../data/sampleConversations'
-import { SAMPLE_CONVERSATIONS } from '../../data/sampleConversations'
 
 type ConversationsScreenProps = {
+  conversations?: ConversationPreview[]
+  loading?: boolean
+  error?: string | null
   onOpenConversation?: (conversation: ConversationPreview) => void
   onStartNew?: () => void
 }
@@ -33,62 +36,90 @@ const toneMeta: Record<
 }
 
 export function ConversationsScreen({
+  conversations = [],
+  loading = false,
+  error = null,
   onOpenConversation,
   onStartNew,
 }: ConversationsScreenProps) {
+  const hasConversations = conversations.length > 0
+
   return (
     <div className="scrollbar-myspace scroll-fade-y mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-y-auto px-4 py-5 sm:px-6">
       <div className="mb-5">
         <p className="text-sm text-[var(--fg-muted)]">
-          Pick up a thread, or begin a new one when something is on your mind.
+          {hasConversations
+            ? 'Pick up a thread, or begin a new one when something is on your mind.'
+            : 'No saved conversations yet. Start a new one when something is on your mind.'}
         </p>
+        {error ? (
+          <p className="mt-2 text-xs text-red-400">{error}</p>
+        ) : null}
       </div>
 
-      <ul className="flex flex-col gap-1">
-        {SAMPLE_CONVERSATIONS.map((conversation) => {
-          const tone = conversation.tone
-            ? toneMeta[conversation.tone]
-            : undefined
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center py-16 text-sm text-[var(--fg-muted)]">
+          Loading conversations…
+        </div>
+      ) : hasConversations ? (
+        <ul className="flex flex-col gap-1">
+          {conversations.map((conversation) => {
+            const tone = conversation.tone
+              ? toneMeta[conversation.tone]
+              : undefined
 
-          return (
-            <li key={conversation.id}>
-              <button
-                type="button"
-                onClick={() => onOpenConversation?.(conversation)}
-                className="group flex w-full items-start gap-3 rounded-2xl px-3 py-3.5 text-left transition-colors hover:bg-[var(--bg-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-              >
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
-                  {tone?.icon ?? <LuInfinity size={16} strokeWidth={1.75} />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-baseline justify-between gap-3">
-                    <h2 className="font-medium text-[var(--fg)] group-hover:text-[var(--accent)]">
-                      {conversation.title}
-                    </h2>
-                    <span className="shrink-0 text-xs text-[var(--fg-muted)]">
-                      {conversation.updatedAt}
-                    </span>
+            return (
+              <li key={conversation.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpenConversation?.(conversation)}
+                  className="group flex w-full items-start gap-3 rounded-2xl px-3 py-3.5 text-left transition-colors hover:bg-[var(--bg-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                >
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)]">
+                    {tone?.icon ?? <LuInfinity size={16} strokeWidth={1.75} />}
                   </span>
-                  <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-[var(--fg-muted)]">
-                    {conversation.preview}
-                  </p>
-                  {tone ? (
-                    <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium tracking-wide text-[var(--accent)]">
-                      {tone.icon}
-                      {tone.label}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-3">
+                      <h2 className="font-medium text-[var(--fg)] group-hover:text-[var(--accent)]">
+                        {conversation.title}
+                      </h2>
+                      <span className="shrink-0 text-xs text-[var(--fg-muted)]">
+                        {conversation.updatedAt}
+                      </span>
                     </span>
-                  ) : null}
-                </span>
-                <LuChevronRight
-                  size={16}
-                  strokeWidth={1.75}
-                  className="mt-2 shrink-0 text-[var(--fg-muted)] opacity-0 transition-opacity group-hover:opacity-100"
-                />
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+                    <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-[var(--fg-muted)]">
+                      {conversation.preview}
+                    </p>
+                    {tone ? (
+                      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium tracking-wide text-[var(--accent)]">
+                        {tone.icon}
+                        {tone.label}
+                      </span>
+                    ) : null}
+                  </span>
+                  <LuChevronRight
+                    size={16}
+                    strokeWidth={1.75}
+                    className="mt-2 shrink-0 text-[var(--fg-muted)] opacity-0 transition-opacity group-hover:opacity-100"
+                  />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--border)] px-6 py-16 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
+            <LuMessageSquare size={22} strokeWidth={1.75} />
+          </span>
+          <p className="text-sm font-medium text-[var(--fg)]">
+            No conversations yet
+          </p>
+          <p className="max-w-sm text-sm leading-relaxed text-[var(--fg-muted)]">
+            Past chats will show up here once conversations are saved.
+          </p>
+        </div>
+      )}
 
       <div className="mt-6 border-t border-[var(--border)] pt-5">
         <button

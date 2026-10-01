@@ -8,6 +8,7 @@ export type ApiChatMessage = {
 export type ChatRequestResult = {
   message: string
   fromCache: boolean
+  conversationId?: string
 }
 
 const CACHE_STORAGE_KEY = 'myspace-chat-response-cache-v1'

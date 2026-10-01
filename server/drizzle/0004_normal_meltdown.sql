@@ -1,0 +1,1 @@
+CREATE INDEX "memories_embedding_hnsw_idx" ON "memories" USING hnsw (("embedding"::halfvec(3072)) halfvec_cosine_ops);
