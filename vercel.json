@@ -7,7 +7,9 @@
     },
     "server": {
       "root": "server",
-      "framework": "express"
+      "framework": "express",
+      "entrypoint": "app.cjs",
+      "buildCommand": "npx esbuild src/myspace-app.ts --bundle --platform=node --target=node20 --format=cjs --outfile=app.cjs && node -e \"const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); delete p.type; fs.writeFileSync('package.json', JSON.stringify(p,null,2));\" && rm -rf src dist"
     }
   },
   "rewrites": [

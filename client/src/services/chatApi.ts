@@ -1,5 +1,6 @@
 import type { ChatMessage, MessageRole } from '../types/chat'
 import type { ConversationPreview } from '../data/sampleConversations'
+import { getAccessToken } from '../lib/authClient'
 import {
   getInflightChatRequest,
   setCachedChatResponse,
@@ -64,6 +65,28 @@ function toApiMessages(
     role: message.role,
     content: message.content,
   }))
+}
+
+async function authHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  const headers = new Headers(extra)
+  const token = await getAccessToken()
+  if (!token) {
+    throw new ChatRequestError(
+      'Please sign in again — could not get an auth token for the API',
+      { status: 401 },
+    )
+  }
+  headers.set('Authorization', `Bearer ${token}`)
+  return headers
+}
+
+function throwIfUnauthorized(status: number, fallbackMessage?: string): void {
+  if (status === 401) {
+    throw new ChatRequestError(
+      fallbackMessage ?? 'Please sign in to continue',
+      { status: 401 },
+    )
+  }
 }
 
 function sleep(ms: number) {
@@ -143,10 +166,10 @@ async function requestChatResponseOnce(
 ): Promise<ChatTurnResult> {
   const response = await fetch('/api/ai/chat', {
     method: 'POST',
-    headers: {
+    headers: await authHeaders({
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
-    },
+    }),
     body: JSON.stringify({
       messages,
       ...(conversationId ? { conversationId } : {}),
@@ -154,6 +177,7 @@ async function requestChatResponseOnce(
   })
 
   if (!response.ok) {
+    throwIfUnauthorized(response.status)
     const payload = await readErrorPayload(response)
     const errorMessage =
       payload && typeof payload.error === 'string'
@@ -189,11 +213,25 @@ async function requestChatResponseOnce(
     buffer = parsed.rest
 
     for (const event of parsed.events) {
+      if (
+        'conversationId' in event &&
+        typeof event.conversationId === 'string' &&
+        event.conversationId.length > 0
+      ) {
+        persistedConversationId = event.conversationId
+      }
+
+      if ('text' in event && typeof event.text === 'string' && event.text.length > 0) {
+        message += event.text
+        onChunk?.(event.text)
+      }
+
       if ('error' in event && typeof event.error === 'string') {
         if (message.trim()) {
           console.warn('[chat] stream error after partial reply; keeping text', {
             chars: message.length,
             error: event.error,
+            conversationId: persistedConversationId,
           })
           return {
             message,
@@ -209,19 +247,6 @@ async function requestChatResponseOnce(
               ? event.retryAfterSeconds
               : undefined,
         })
-      }
-
-      if (
-        'conversationId' in event &&
-        typeof event.conversationId === 'string' &&
-        event.conversationId.length > 0
-      ) {
-        persistedConversationId = event.conversationId
-      }
-
-      if ('text' in event && typeof event.text === 'string' && event.text.length > 0) {
-        message += event.text
-        onChunk?.(event.text)
       }
 
       if ('done' in event && event.done) {
@@ -330,9 +355,15 @@ export async function sendChatMessages(
 }
 
 export async function fetchRecentConversations(): Promise<ConversationPreview[]> {
-  const response = await fetch('/api/ai/conversations')
+  const response = await fetch('/api/ai/conversations', {
+    headers: await authHeaders({ Accept: 'application/json' }),
+    signal: AbortSignal.timeout(20_000),
+  })
   if (!response.ok) {
-    throw new Error('Unable to load conversations right now')
+    throwIfUnauthorized(response.status)
+    throw new ChatRequestError('Unable to load conversations right now', {
+      status: response.status,
+    })
   }
 
   const payload = (await response.json()) as {
@@ -350,9 +381,14 @@ export async function fetchRecentConversations(): Promise<ConversationPreview[]>
 export async function fetchConversation(
   id: string,
 ): Promise<{ id: string; title: string; messages: ChatMessage[] }> {
-  const response = await fetch(`/api/ai/conversations/${id}`)
+  const response = await fetch(`/api/ai/conversations/${id}`, {
+    headers: await authHeaders({ Accept: 'application/json' }),
+  })
   if (!response.ok) {
-    throw new Error('Unable to load conversation right now')
+    throwIfUnauthorized(response.status)
+    throw new ChatRequestError('Unable to load conversation right now', {
+      status: response.status,
+    })
   }
 
   const payload = (await response.json()) as StoredConversationDetail
@@ -365,6 +401,49 @@ export async function fetchConversation(
       role: message.role,
       content: message.content,
     })),
+  }
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  const response = await fetch(`/api/ai/conversations/${id}`, {
+    method: 'DELETE',
+    headers: await authHeaders({ Accept: 'application/json' }),
+  })
+  if (!response.ok) {
+    throwIfUnauthorized(response.status)
+    throw new ChatRequestError('Unable to delete conversation right now', {
+      status: response.status,
+    })
+  }
+}
+
+export async function renameConversation(
+  id: string,
+  title: string,
+): Promise<{ id: string; title: string }> {
+  const response = await fetch(`/api/ai/conversations/${id}`, {
+    method: 'PATCH',
+    headers: await authHeaders({
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    }),
+    body: JSON.stringify({ title }),
+  })
+  if (!response.ok) {
+    throwIfUnauthorized(response.status)
+    throw new ChatRequestError('Unable to rename conversation right now', {
+      status: response.status,
+    })
+  }
+
+  const payload = (await response.json()) as {
+    id?: string
+    title?: string
+  }
+
+  return {
+    id: payload.id ?? id,
+    title: payload.title?.trim() || title.trim(),
   }
 }
 

@@ -31,6 +31,14 @@ export const conversationIdParamSchema = z.object({
   id: z.uuid({ error: 'Id must be a valid UUID' }),
 });
 
+export const renameConversationRequestSchema = z.object({
+  title: z
+    .string({ error: 'Title must be a string' })
+    .trim()
+    .min(1, 'Title is required')
+    .max(120, 'Title must be at most 120 characters'),
+});
+
 /** Task 2.1 — structured-output experiment request */
 export const structuredRequestSchema = z.object({
   message: z
@@ -282,6 +290,9 @@ export const ragRetrieveRequestSchema = z.object({
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatRequest = z.infer<typeof chatRequestSchema>;
 export type ConversationIdParam = z.infer<typeof conversationIdParamSchema>;
+export type RenameConversationRequest = z.infer<
+  typeof renameConversationRequestSchema
+>;
 export type StructuredRequest = z.infer<typeof structuredRequestSchema>;
 export type StructuredAnalysis = z.infer<typeof structuredAnalysisSchema>;
 export type JsonRequest = z.infer<typeof jsonRequestSchema>;

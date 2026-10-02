@@ -21,6 +21,8 @@ import { memorySearchRequestSchema } from '../validators/ai.validator.js';
 
 const MARKER = 'phase49-memory-search';
 
+const TEST_USER_ID = 'test-user-phase49';
+
 function unitAt(index: number): number[] {
   return Array.from({ length: EMBEDDING_EXPERIMENT_DIMENSIONS }, (_, i) =>
     i === index ? 1 : 0,
@@ -96,7 +98,7 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
     await db.delete(memories).where(like(memories.content, `%${MARKER}%`));
   });
@@ -106,6 +108,7 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
       content: `${MARKER} null-only row`,
       category: 'other',
       importance: 0.3,
+      userId: TEST_USER_ID,
     });
     const listed = await db
       .select({ id: memories.id })
@@ -118,7 +121,7 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
 
     // Search with a vector that would only match our fixture axis if embedded.
     // NULL-embedding rows must not appear.
-    const results = await searchSimilarMemories(unitAt(10), 5);
+    const results = await searchSimilarMemories(unitAt(10), 5, { userId: TEST_USER_ID });
     const marked = results.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 0);
   });
@@ -128,21 +131,25 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
       content: `${MARKER} near postgres`,
       category: 'preference',
       importance: 0.8,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} mid related`,
       category: 'preference',
       importance: 0.6,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} far cooking`,
       category: 'other',
       importance: 0.4,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} null embedding ignored`,
       category: 'preference',
       importance: 0.9,
+      userId: TEST_USER_ID,
     });
 
     const nearRows = await db
@@ -159,9 +166,9 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
     const nullId = byContent[`${MARKER} null embedding ignored`]!;
     createdIds.push(nearId, midId, farId, nullId);
 
-    await updateMemoryEmbedding(nearId, unitAt(0));
-    await updateMemoryEmbedding(midId, unitAt(1));
-    await updateMemoryEmbedding(farId, unitAt(2));
+    await updateMemoryEmbedding(nearId, unitAt(0), TEST_USER_ID);
+    await updateMemoryEmbedding(midId, unitAt(1), TEST_USER_ID);
+    await updateMemoryEmbedding(farId, unitAt(2), TEST_USER_ID);
     // nullId left without embedding
 
     const query = unitAt(0);
@@ -169,7 +176,7 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
     query[1] = Math.sqrt(1 - 0.9 ** 2);
 
     // Fetch enough rows so fixture ranking is visible among other DB memories.
-    const results = await searchSimilarMemories(query, 50);
+    const results = await searchSimilarMemories(query, 50, { userId: TEST_USER_ID });
     const marked = results.filter((r) => r.content.includes(MARKER));
 
     assert.equal(marked.length, 3);
@@ -199,11 +206,13 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
       content: `${MARKER} topk-a`,
       category: 'goal',
       importance: 0.5,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} topk-b`,
       category: 'goal',
       importance: 0.5,
+      userId: TEST_USER_ID,
     });
 
     const rows = await db
@@ -215,16 +224,15 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
       createdIds.push(row.id);
       await updateMemoryEmbedding(
         row.id,
-        unitAt(row.content.includes('topk-a') ? 5 : 6),
-      );
+        unitAt(row.content.includes('topk-a') ? 5 : 6), TEST_USER_ID);
     }
 
     const aId = rows.find((r) => r.content.includes('topk-a'))!.id;
 
-    const top1 = await searchSimilarMemories(unitAt(5), 1);
+    const top1 = await searchSimilarMemories(unitAt(5), 1, { userId: TEST_USER_ID });
     assert.equal(top1.length, 1);
 
-    const ranked = await searchSimilarMemories(unitAt(5), 50);
+    const ranked = await searchSimilarMemories(unitAt(5), 50, { userId: TEST_USER_ID });
     const marked = ranked.filter((r) => r.content.includes(MARKER));
     assert.ok(marked.length >= 1);
     assert.equal(marked[0]!.id, aId);
@@ -232,7 +240,7 @@ describe('searchSimilarMemories (requires PostgreSQL + pgvector)', () => {
 
   it('rejects wrong query embedding dimensions', async () => {
     await assert.rejects(
-      () => searchSimilarMemories([1, 2, 3], 3),
+      () => searchSimilarMemories([1, 2, 3], 3, { userId: TEST_USER_ID }),
       MemoryEmbeddingDimensionMismatchError,
     );
   });

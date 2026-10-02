@@ -2,7 +2,7 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Typed angle so conic-gradient can animate smoothly (AI Studio technique) */
+/* Typed angle so conic-gradient can animate smoothly */
 @property --gemini-angle {
   syntax: '<angle>';
   inherits: false;
@@ -10,27 +10,31 @@
 }
 
 @theme {
-  --font-sans: 'Outfit', ui-sans-serif, sans-serif;
-  --font-display: 'Source Serif 4', ui-serif, Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
 
-  --color-myspace-blue: #8ab4f8;
-  --color-myspace-blue-soft: #aecbfa;
-  --color-myspace-blue-deep: #669df6;
+  /* Brand accent — MySpace blue */
+  --color-myspace-blue: #2b6cf0;
+  --color-myspace-blue-soft: #5b8def;
+  --color-myspace-blue-deep: #1e54d4;
 
-  --color-ink: #1a1c1e;
-  --color-ink-muted: #5f6368;
-  --color-canvas: #f8f9fa;
+  /* Light neutrals — soft cool gray, calm reading surface */
+  --color-ink: #152033;
+  --color-ink-muted: #5b6578;
+  --color-canvas: #f3f5f9;
   --color-surface: #ffffff;
-  --color-surface-soft: #eef0f2;
-  --color-line: #dadce0;
+  --color-surface-soft: #e8ecf3;
+  --color-line: #d9dee8;
+  --color-sidebar: #eceff5;
 
-  /* Google AI Studio–adjacent dark tokens */
-  --color-ink-dark: #e8eaed;
-  --color-ink-muted-dark: #9aa0a6;
-  --color-canvas-dark: #131314;
-  --color-surface-dark: #1e1f20;
-  --color-surface-soft-dark: #2a2b2d;
-  --color-line-dark: #3c4043;
+  /* Dark neutrals — deep charcoal, not pure black */
+  --color-ink-dark: #f0f2f7;
+  --color-ink-muted-dark: #9aa3b5;
+  --color-canvas-dark: #1c1e24;
+  --color-surface-dark: #2a2d36;
+  --color-surface-soft-dark: #353944;
+  --color-sidebar-dark: #14161b;
+  --color-line-dark: #3d424e;
 }
 
 @layer base {
@@ -39,16 +43,26 @@
     --bg: var(--color-canvas);
     --bg-elevated: var(--color-surface);
     --bg-soft: var(--color-surface-soft);
+    --bg-sidebar: var(--color-sidebar);
     --fg: var(--color-ink);
     --fg-muted: var(--color-ink-muted);
     --border: var(--color-line);
-    --accent: #1a73e8;
-    --accent-soft: color-mix(in srgb, #1a73e8 12%, white);
-    --composer-ring: color-mix(in srgb, #1a73e8 28%, transparent);
-    --scroll-thumb: color-mix(in srgb, #1a73e8 22%, #c5d0e0);
-    --scroll-thumb-hover: color-mix(in srgb, #1a73e8 45%, #9eb0c8);
+    --accent: var(--color-myspace-blue);
+    --accent-soft: color-mix(in srgb, var(--color-myspace-blue) 12%, white);
+    --composer-ring: color-mix(in srgb, var(--color-myspace-blue) 20%, transparent);
+    --user-bubble: #bfdbfe;
+    --user-bubble-fg: #0c1a33;
+    --assistant-bubble: #ffffff;
+    --assistant-bubble-border: #d0d7e4;
+    --assistant-bubble-fg: var(--color-ink);
+    --scroll-thumb: #c5ccd8;
+    --scroll-thumb-hover: #a8b1c0;
     --scroll-track: transparent;
-    --glow: color-mix(in srgb, #1a73e8 18%, transparent);
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #152033 6%, transparent),
+      0 1px 3px color-mix(in srgb, #152033 4%, transparent);
+    --shadow-composer: 0 0 0 1px var(--border),
+      0 8px 24px color-mix(in srgb, #152033 5%, transparent);
+    --selection: color-mix(in srgb, var(--color-myspace-blue) 18%, white);
   }
 
   .dark {
@@ -56,16 +70,29 @@
     --bg: var(--color-canvas-dark);
     --bg-elevated: var(--color-surface-dark);
     --bg-soft: var(--color-surface-soft-dark);
+    --bg-sidebar: var(--color-sidebar-dark);
     --fg: var(--color-ink-dark);
     --fg-muted: var(--color-ink-muted-dark);
     --border: var(--color-line-dark);
-    --accent: var(--color-myspace-blue);
-    --accent-soft: color-mix(in srgb, var(--color-myspace-blue) 16%, #1e1f20);
-    --composer-ring: color-mix(in srgb, var(--color-myspace-blue) 28%, transparent);
-    --scroll-thumb: color-mix(in srgb, var(--color-myspace-blue) 28%, #3c4043);
-    --scroll-thumb-hover: color-mix(in srgb, var(--color-myspace-blue) 50%, #5f6368);
+    --accent: var(--color-myspace-blue-soft);
+    --accent-soft: color-mix(in srgb, var(--color-myspace-blue-soft) 18%, #2a2d36);
+    --composer-ring: color-mix(in srgb, var(--color-myspace-blue-soft) 28%, transparent);
+    --user-bubble: color-mix(in srgb, var(--color-myspace-blue-soft) 42%, #252836);
+    --user-bubble-fg: #f0f2f7;
+    --assistant-bubble: #323642;
+    --assistant-bubble-border: #4a5160;
+    --assistant-bubble-fg: var(--color-ink-dark);
+    --scroll-thumb: #4a5060;
+    --scroll-thumb-hover: #5c6476;
     --scroll-track: transparent;
-    --glow: color-mix(in srgb, var(--color-myspace-blue) 22%, transparent);
+    --shadow-sm: 0 1px 2px color-mix(in srgb, #000 40%, transparent);
+    --shadow-composer: 0 0 0 1px var(--border),
+      0 10px 28px color-mix(in srgb, #000 28%, transparent);
+    --selection: color-mix(in srgb, var(--color-myspace-blue-soft) 28%, #2a2d36);
+  }
+
+  html {
+    transition: background-color 180ms ease, color 180ms ease;
   }
 
   html,
@@ -77,10 +104,55 @@
   body {
     margin: 0;
     font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    letter-spacing: -0.011em;
+    font-feature-settings: 'ss01' on, 'cv11' on;
     color: var(--fg);
     background: var(--bg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--selection);
+    color: var(--fg);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.025em;
+    color: var(--fg);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    font-variation-settings: 'SOFT' 40, 'WONK' 0.4;
+    letter-spacing: -0.03em;
+  }
+
+  /* Matches logo-light.png wordmark blues; white in dark mode */
+  .myspace-wordmark {
+    background-image: linear-gradient(
+      105deg,
+      #33b7ff 0%,
+      #1a7aef 42%,
+      #0047ab 100%
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .dark .myspace-wordmark {
+    background-image: none;
+    color: #ffffff;
+    -webkit-text-fill-color: #ffffff;
   }
 
   * {
@@ -116,8 +188,10 @@
   }
 
   button,
-  textarea {
+  textarea,
+  input {
     font: inherit;
+    letter-spacing: inherit;
   }
 
   .safe-bottom {
@@ -125,16 +199,22 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      transition: none;
+    }
+
     .msg-enter,
     .welcome-enter,
     .chip-enter,
-    .studio-backdrop::before {
-      animation: none !important;
-    }
-
+    .composer-dock,
+    .composer-form--welcome,
+    .sidebar-panel,
+    .drawer-backdrop,
     .gemini-prompt__glow,
-    .gemini-prompt__shell {
+    .gemini-prompt__shell,
+    .auth-modal-enter {
       animation: none !important;
+      transition: none !important;
     }
   }
 }
@@ -144,7 +224,6 @@
     scrollbar-gutter: stable;
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) transparent;
-    scroll-behavior: smooth;
   }
 
   .scrollbar-myspace::-webkit-scrollbar {
@@ -152,82 +231,91 @@
   }
 
   .scrollbar-myspace::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--scroll-thumb);
     border-radius: 999px;
   }
 
-  .scroll-fade-y {
-    mask-image: linear-gradient(
-      to bottom,
-      transparent,
-      #000 18px,
-      #000 calc(100% - 22px),
-      transparent
-    );
-  }
-
-  /* Ambient studio backdrop */
-  .studio-backdrop {
-    position: relative;
-    isolation: isolate;
-    background: var(--bg);
-  }
-
-  .studio-backdrop::before {
-    content: '';
-    pointer-events: none;
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    background:
-      radial-gradient(ellipse 70% 50% at 20% -10%, var(--glow), transparent 55%),
-      radial-gradient(ellipse 55% 40% at 90% 10%, color-mix(in srgb, #34a853 12%, transparent), transparent 50%),
-      radial-gradient(ellipse 50% 35% at 50% 110%, color-mix(in srgb, #fbbc04 8%, transparent), transparent 45%);
-    opacity: 0.9;
-  }
-
-  .dark .studio-backdrop::before {
-    animation: studio-aurora 18s ease-in-out infinite alternate;
-  }
-
-  .studio-backdrop > * {
-    position: relative;
-    z-index: 1;
-  }
-
   .msg-enter {
-    animation: msg-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: msg-rise 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .welcome-enter {
-    animation: welcome-fade 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: welcome-fade 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .chip-enter {
+    animation: chip-pop 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .composer-form--welcome {
+    animation: composer-welcome-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: 120ms;
+  }
+
+  .composer-dock {
+    animation: composer-dock-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .home-stage.is-welcome {
+    background:
+      radial-gradient(
+        58% 40% at 50% 36%,
+        color-mix(in srgb, var(--accent) 9%, transparent),
+        transparent 72%
+      ),
+      radial-gradient(
+        40% 28% at 80% 12%,
+        color-mix(in srgb, var(--accent) 5%, transparent),
+        transparent 70%
+      );
+  }
+
+  .dark .home-stage.is-welcome {
+    background:
+      radial-gradient(
+        55% 38% at 50% 34%,
+        color-mix(in srgb, var(--accent) 12%, transparent),
+        transparent 72%
+      ),
+      radial-gradient(
+        36% 24% at 78% 10%,
+        color-mix(in srgb, var(--accent) 7%, transparent),
+        transparent 70%
+      );
+  }
+
+  .sidebar-panel {
+    transition:
+      width 200ms ease,
+      transform 200ms ease,
+      opacity 180ms ease,
+      background-color 180ms ease,
+      border-color 180ms ease;
+  }
+
+  .drawer-backdrop {
+    transition: opacity 180ms ease;
   }
 
   .composer-shell {
     transition:
-      border-color 200ms ease,
-      box-shadow 220ms ease,
-      transform 220ms ease,
-      background-color 200ms ease;
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      background-color 160ms ease;
   }
 
   .composer-shell:focus-within {
-    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    box-shadow: 0 0 0 3px var(--composer-ring);
   }
 
-  .dark .composer-shell:focus-within {
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent),
-      0 12px 40px color-mix(in srgb, #000 45%, transparent);
-  }
-
-  /* Gemini / AI Studio–style animated prompt border */
+  /* Animated rainbow border — welcome composer (AI Studio style) */
   .gemini-prompt {
     --gemini-border: 2px;
     --gemini-radius: 1.75rem;
-    --gemini-face: #ffffff;
+    --gemini-face: var(--bg-elevated);
     --gemini-speed: 5s;
-    --gemini-glow-opacity: 0.28;
+    --gemini-glow-opacity: 0.26;
     position: relative;
     border-radius: var(--gemini-radius);
     isolation: isolate;
@@ -235,32 +323,30 @@
   }
 
   .dark .gemini-prompt {
-    --gemini-face: #1e1f20;
-    --gemini-glow-opacity: 0.42;
+    --gemini-glow-opacity: 0.4;
   }
 
   .gemini-prompt:focus-within,
   .gemini-prompt[data-active='true'] {
     --gemini-speed: 3s;
-    --gemini-glow-opacity: 0.42;
+    --gemini-glow-opacity: 0.4;
     transform: translateY(-1px);
   }
 
   .dark .gemini-prompt:focus-within,
   .dark .gemini-prompt[data-active='true'] {
-    --gemini-glow-opacity: 0.58;
+    --gemini-glow-opacity: 0.55;
   }
 
   .gemini-prompt[data-busy='true'] {
     --gemini-speed: 1.6s;
-    --gemini-glow-opacity: 0.55;
+    --gemini-glow-opacity: 0.52;
   }
 
   .dark .gemini-prompt[data-busy='true'] {
-    --gemini-glow-opacity: 0.72;
+    --gemini-glow-opacity: 0.68;
   }
 
-  /* Soft multi-color bloom behind the bar (AI Studio glow) */
   .gemini-prompt__glow {
     pointer-events: none;
     position: absolute;
@@ -292,16 +378,16 @@
     filter: blur(26px);
   }
 
-  /* Face + rotating rainbow ring via padding-box / border-box */
   .gemini-prompt__shell {
     position: relative;
     z-index: 1;
     display: flex;
-    align-items: flex-end;
-    gap: 0.375rem;
+    align-items: center;
+    gap: 0.5rem;
     border: var(--gemini-border) solid transparent;
     border-radius: inherit;
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    min-height: 3.5rem;
     background:
       linear-gradient(var(--gemini-face), var(--gemini-face)) padding-box,
       conic-gradient(
@@ -317,16 +403,8 @@
           #4285f4 360deg
         )
         border-box;
-    box-shadow:
-      0 1px 0 color-mix(in srgb, #fff 6%, transparent) inset,
-      0 10px 28px color-mix(in srgb, #000 18%, transparent);
+    box-shadow: var(--shadow-sm);
     animation: gemini-angle-spin var(--gemini-speed) linear infinite;
-  }
-
-  .dark .gemini-prompt__shell {
-    box-shadow:
-      0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset,
-      0 12px 32px color-mix(in srgb, #000 45%, transparent);
   }
 
   .gemini-prompt[data-disabled='true'] {
@@ -338,16 +416,26 @@
     animation: none;
   }
 
-  .gemini-prompt[data-disabled='true'] .gemini-prompt__glow {
-    opacity: 0.15;
+  .auth-modal-enter {
+    animation: auth-modal-rise 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
-  .gemini-prompt__send {
-    color: #fff;
+  .auth-modal-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll-thumb) transparent;
   }
 
-  .dark .gemini-prompt__send {
-    color: #0b1220;
+  .auth-modal-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .auth-modal-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .auth-modal-scroll::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb);
+    border-radius: 999px;
   }
 
   .typing-caret::after {
@@ -361,56 +449,11 @@
     animation: caret-blink 1s steps(1) infinite;
   }
 
-  .chat-bubble-assistant {
-    position: relative;
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-    background:
-      linear-gradient(
-        145deg,
-        color-mix(in srgb, var(--accent) 7%, var(--bg-elevated)) 0%,
-        color-mix(in srgb, var(--bg-elevated) 94%, transparent) 42%,
-        var(--bg-elevated) 100%
-      );
-    box-shadow:
-      0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset,
-      0 10px 28px -18px color-mix(in srgb, #000 55%, transparent);
-    backdrop-filter: blur(10px);
-  }
-
-  .chat-bubble-assistant::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 10px;
-    bottom: 10px;
-    width: 3px;
-    border-radius: 999px;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--accent) 85%, white),
-      color-mix(in srgb, var(--accent) 35%, transparent)
-    );
-  }
-
-  .chat-bubble-user {
-    color: #fff;
-    background: linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--accent) 88%, white),
-      var(--accent)
-    );
-    box-shadow: 0 10px 24px -16px color-mix(in srgb, var(--accent) 70%, transparent);
-  }
-
-  .dark .chat-bubble-user {
-    color: #0b1220;
-  }
-
   .chat-markdown {
     color: var(--fg);
     font-size: 0.95rem;
-    line-height: 1.65;
+    line-height: 1.72;
+    letter-spacing: -0.01em;
   }
 
   .chat-markdown > :first-child {
@@ -425,7 +468,9 @@
   .chat-markdown h2,
   .chat-markdown h3,
   .chat-markdown h4 {
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.025em;
     color: var(--fg);
   }
 
@@ -446,13 +491,13 @@
   .chat-markdown ul > li::before {
     content: '';
     position: absolute;
-    left: 0.15rem;
-    top: 0.62em;
-    width: 0.35rem;
-    height: 0.35rem;
+    left: 0.2rem;
+    top: 0.65em;
+    width: 0.28rem;
+    height: 0.28rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 80%, white);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+    background: var(--accent);
+    opacity: 0.55;
   }
 
   .chat-markdown ol {
@@ -468,57 +513,20 @@
   }
 
   .chat-markdown ol > li::before {
-    content: counter(chat-ol);
+    content: counter(chat-ol) '.';
     position: absolute;
     left: 0;
-    top: 0.15em;
-    display: inline-flex;
-    min-width: 1.15rem;
-    height: 1.15rem;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    top: 0;
     color: var(--accent);
-    font-size: 0.68rem;
-    font-weight: 700;
-  }
-
-  .nav-indicator {
-    transition:
-      background-color 200ms ease,
-      color 200ms ease,
-      transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
-  }
-
-  .nav-indicator[data-active='true'] {
-    transform: translateY(-1px);
-  }
-
-  .chip-enter {
-    animation: chip-pop 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-}
-
-@keyframes studio-aurora {
-  0% {
-    filter: hue-rotate(0deg) saturate(1);
-    transform: scale(1) translate3d(0, 0, 0);
-  }
-  50% {
-    filter: hue-rotate(12deg) saturate(1.15);
-    transform: scale(1.04) translate3d(-1%, 1%, 0);
-  }
-  100% {
-    filter: hue-rotate(-8deg) saturate(1.05);
-    transform: scale(1.02) translate3d(1%, -1%, 0);
+    font-size: 0.9em;
+    font-weight: 600;
   }
 }
 
 @keyframes msg-rise {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -529,11 +537,11 @@
 @keyframes welcome-fade {
   from {
     opacity: 0;
-    transform: translateY(16px) scale(0.98);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -551,11 +559,45 @@
 @keyframes chip-pop {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.96);
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes composer-welcome-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.98);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes composer-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
@@ -578,23 +620,13 @@
   }
 }
 
-@keyframes gemini-spin {
+@keyframes auth-modal-rise {
   from {
-    transform: translate(-50%, -50%) rotate(0deg);
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
   }
   to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-@keyframes thinking-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
-  }
-  50% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
   }
 }

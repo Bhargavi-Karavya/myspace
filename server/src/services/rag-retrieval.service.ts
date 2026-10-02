@@ -41,6 +41,8 @@ export type RelevantContextResult = {
 
 export type RetrieveRelevantContextInput = {
   query: string;
+  /** Neon Auth user id — required; search is scoped in SQL. */
+  userId: string;
   topK?: number;
   category?: MemoryCategory;
 };
@@ -59,11 +61,11 @@ export type RagRetrievalDeps = {
   generateQueryEmbedding?: (
     query: unknown,
   ) => Promise<QueryEmbeddingResult>;
-  /** Override pgvector memory search (tests). */
+  /** Override pgvector memory search (tests). Must accept userId in options. */
   searchMemories?: (
     queryEmbedding: number[],
     topK: number,
-    category?: MemoryCategory,
+    options: { userId: string; category?: MemoryCategory },
   ) => Promise<MemorySimilarityHit[]>;
 };
 
@@ -81,6 +83,7 @@ function toContextMemory(hit: MemorySimilarityHit): RelevantContextMemory {
  * Phase 5.4 — retrieve memories that are candidates to become AI context.
  * Single implementation of query embedding + semantic search + topK/category.
  * Does not apply relevance thresholds, custom ranking, or prompt construction.
+ * Ownership filtering is applied in SQL via userId.
  */
 export async function retrieveRelevantContext(
   input: RetrieveRelevantContextInput,
@@ -98,7 +101,10 @@ export async function retrieveRelevantContext(
     throw new MemoryEmbeddingDimensionMismatchError(queryVector.length);
   }
 
-  const hits = await search(queryVector, topK, input.category);
+  const hits = await search(queryVector, topK, {
+    userId: input.userId,
+    category: input.category,
+  });
 
   return {
     query: embedded.query,
@@ -112,11 +118,15 @@ export async function retrieveRelevantContext(
  */
 export async function retrieveRelevantMemories(
   query: string,
+  userId: string,
   topK: number = MEMORY_SEARCH_DEFAULT_TOP_K,
   category?: MemoryCategory,
   deps: RagRetrievalDeps = {},
 ): Promise<RagRetrievalResult> {
-  const result = await retrieveRelevantContext({ query, topK, category }, deps);
+  const result = await retrieveRelevantContext(
+    { query, userId, topK, category },
+    deps,
+  );
   return {
     query: result.query,
     results: result.memories,

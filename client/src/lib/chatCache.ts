@@ -111,3 +111,14 @@ export function setInflightChatRequest(
 
   request.then(clear, clear)
 }
+
+/** Clears in-memory and persisted chat response caches (e.g. on sign-out / account switch). */
+export function clearChatCache() {
+  memoryCache.clear()
+  inflightRequests.clear()
+  try {
+    window.localStorage.removeItem(CACHE_STORAGE_KEY)
+  } catch {
+    // Ignore private-mode / storage failures.
+  }
+}

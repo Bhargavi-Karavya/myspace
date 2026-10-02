@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import {
   conversations,
@@ -10,6 +10,7 @@ import type { MessageRole } from '../chat/message-roles.js';
 
 export type ConversationRecord = {
   id: string;
+  userId: string | null;
   title: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -28,9 +29,14 @@ export type ConversationPreviewRecord = ConversationRecord & {
   preview: string | null;
 };
 
+function ownedByUser(userId: string) {
+  return eq(conversations.userId, userId);
+}
+
 function toConversationRecord(row: ConversationRow): ConversationRecord {
   return {
     id: row.id,
+    userId: row.userId,
     title: row.title,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -75,12 +81,14 @@ function logDbError(context: string, error: unknown) {
 }
 
 export async function insertConversation(input: {
+  userId: string;
   title?: string | null;
 }): Promise<ConversationRecord> {
   try {
     const [row] = await db
       .insert(conversations)
       .values({
+        userId: input.userId,
         title: input.title ?? null,
       })
       .returning();
@@ -92,14 +100,19 @@ export async function insertConversation(input: {
   }
 }
 
-export async function findConversationById(
+/**
+ * Load a conversation only when it belongs to the authenticated user.
+ * Legacy ownerless rows (user_id IS NULL) are never returned.
+ */
+export async function findConversationByIdAndUserId(
   id: string,
+  userId: string,
 ): Promise<ConversationRecord | null> {
   try {
     const [row] = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.id, id))
+      .where(and(eq(conversations.id, id), ownedByUser(userId)))
       .limit(1);
 
     return row ? toConversationRecord(row) : null;
@@ -111,12 +124,13 @@ export async function findConversationById(
 
 export async function touchConversationUpdatedAt(
   id: string,
+  userId: string,
 ): Promise<ConversationRecord | null> {
   try {
     const [row] = await db
       .update(conversations)
       .set({ updatedAt: new Date() })
-      .where(eq(conversations.id, id))
+      .where(and(eq(conversations.id, id), ownedByUser(userId)))
       .returning();
 
     return row ? toConversationRecord(row) : null;
@@ -128,10 +142,11 @@ export async function touchConversationUpdatedAt(
 
 export async function setConversationTitleIfEmpty(
   id: string,
+  userId: string,
   title: string,
 ): Promise<void> {
   try {
-    const existing = await findConversationById(id);
+    const existing = await findConversationByIdAndUserId(id, userId);
     if (!existing || existing.title) {
       return;
     }
@@ -139,9 +154,28 @@ export async function setConversationTitleIfEmpty(
     await db
       .update(conversations)
       .set({ title, updatedAt: new Date() })
-      .where(eq(conversations.id, id));
+      .where(and(eq(conversations.id, id), ownedByUser(userId)));
   } catch (error) {
     logDbError('Conversation set title failed:', error);
+    throw error;
+  }
+}
+
+export async function updateConversationTitle(
+  id: string,
+  userId: string,
+  title: string,
+): Promise<ConversationRecord | null> {
+  try {
+    const [row] = await db
+      .update(conversations)
+      .set({ title, updatedAt: new Date() })
+      .where(and(eq(conversations.id, id), ownedByUser(userId)))
+      .returning();
+
+    return row ? toConversationRecord(row) : null;
+  } catch (error) {
+    logDbError('Conversation update title failed:', error);
     throw error;
   }
 }
@@ -186,16 +220,18 @@ export async function listMessagesByConversationId(
 }
 
 /**
- * Recent conversations for the Conversations screen.
- * Preview = latest message content (may be null for empty threads).
+ * Recent conversations for the authenticated user only.
+ * Legacy ownerless rows are excluded via user_id filter.
  */
-export async function listRecentConversations(
+export async function listRecentConversationsByUserId(
+  userId: string,
   limit = 50,
 ): Promise<ConversationPreviewRecord[]> {
   try {
     const rows = await db
       .select()
       .from(conversations)
+      .where(ownedByUser(userId))
       .orderBy(desc(conversations.updatedAt))
       .limit(limit);
 
@@ -218,6 +254,23 @@ export async function listRecentConversations(
     return previews;
   } catch (error) {
     logDbError('Conversation list failed:', error);
+    throw error;
+  }
+}
+
+export async function deleteConversationByIdAndUserId(
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  try {
+    const deleted = await db
+      .delete(conversations)
+      .where(and(eq(conversations.id, id), ownedByUser(userId)))
+      .returning({ id: conversations.id });
+
+    return deleted.length > 0;
+  } catch (error) {
+    logDbError('Conversation delete failed:', error);
     throw error;
   }
 }

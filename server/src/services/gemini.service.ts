@@ -1,6 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, Type, type Content, type Schema } from '@google/genai';
 import { env } from '../config/env.js';
 import {
@@ -161,7 +160,7 @@ export const memoryExtractAiGeminiSchema: Schema = {
 const MAX_CACHE_ENTRIES = 100;
 const responseCache = new Map<string, string>();
 
-const cacheDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.cache');
+const cacheDir = path.join(process.env.VERCEL ? '/tmp' : process.cwd(), '.cache');
 const cacheFilePath = path.join(cacheDir, 'gemini-chat-cache.json');
 
 function loadPersistedCache() {
@@ -255,10 +254,25 @@ export async function generateMessage(
  * Errors thrown here happen before any chunks are produced.
  * Retries a few times on temporary 503 capacity spikes.
  */
-export async function startMessageStream(messages: ChatMessage[]) {
+export type StartMessageStreamOptions = {
+  /**
+   * Optional extra system-instruction block (e.g. user-scoped RAG memories).
+   * Appended after the base MySpace instruction. Never include embeddings.
+   */
+  systemInstructionExtra?: string;
+};
+
+export async function startMessageStream(
+  messages: ChatMessage[],
+  options: StartMessageStreamOptions = {},
+) {
   const maxAttempts = 5;
   let lastError: unknown;
   const contents = toGeminiContents(messages);
+  const extra = options.systemInstructionExtra?.trim();
+  const effectiveSystemInstruction = extra
+    ? `${systemInstruction}\n\n${extra}`
+    : systemInstruction;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
@@ -266,7 +280,7 @@ export async function startMessageStream(messages: ChatMessage[]) {
         model: env.GEMINI_MODEL,
         contents,
         config: {
-          systemInstruction,
+          systemInstruction: effectiveSystemInstruction,
         },
       });
     } catch (error) {
@@ -661,19 +675,7 @@ export class IntentOutputError extends Error {
   }
 }
 
-const MEMORY_EXTRACT_SYSTEM_INSTRUCTION = `You extract candidate long-term memories from a user message for a personal context assistant called MySpace. Return JSON only with a "memories" array. Each item must have "content" (string), "category" (one of: ${MEMORY_CATEGORIES.join(', ')}), and "importance" (number from 0 to 1 inclusive).
-
-Privacy and minimization rules (required):
-1. Extract ONLY information that could reasonably help in a future conversation.
-2. Prefer stable preferences, ongoing goals, professional context, and meaningful personal context.
-3. Do NOT store secrets or credentials: passwords, API keys, access tokens, bearer tokens, authorization headers, secret keys, private keys, financial account numbers, payment card data, or similar.
-4. Do NOT store temporary conversational details, one-time requests, short-lived task deadlines, or filler (for example "finish this bug before 5 PM today") unless there is clear long-term future value.
-5. When uncertain whether something should be remembered, do NOT store it — return fewer memories or {"memories":[]}.
-6. Never include secret values in memory content. If a secret appears in the message, ignore the secret entirely.
-7. Importance does NOT override privacy. A highly important secret must still NOT be stored.
-8. Importance measures future usefulness only (0 = very low, 1 = very high). It is NOT confidence or truth.
-
-Other rules: Only evaluate information actually supported by the user message. Do not invent facts. Do not infer sensitive personal attributes that are unnecessary for future context. Do not give advice or explanations. Do not store or retrieve anything — candidates only. Return {"memories":[]} if nothing should be remembered.`;
+const MEMORY_EXTRACT_SYSTEM_INSTRUCTION = `You extract candidate long-term memories from a user message for a personal context assistant called MySpace. Return JSON only with a "memories" array. Each item must have "content" (string), "category" (one of: ${MEMORY_CATEGORIES.join(', ')}), and "importance" (number from 0 to 1 inclusive). Importance measures how useful the information is likely to be across future conversations: 0 = very low long-term usefulness, 1 = very high long-term usefulness. Importance is NOT confidence or proof that the fact is true. Only evaluate information actually supported by the user message. Include only information that could be useful as long-term personal context. Return {"memories":[]} if nothing useful. Do not invent facts, preferences, goals, or personal information. Do not infer sensitive personal attributes. Skip temporary conversational details unless they have clear long-term usefulness. Do not give advice or explanations. Do not store or retrieve anything — candidates only.`;
 
 /**
  * Task 3.3 experiment: extract candidate long-term memories (not persisted)

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { LuMoon, LuSun, LuUser } from 'react-icons/lu'
+import { useAuth } from '../../lib/AuthProvider'
 import { MySpaceLogo } from '../brand/MySpaceLogo'
+import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 
 type MySpaceHeaderProps = {
@@ -8,6 +10,8 @@ type MySpaceHeaderProps = {
   isDark: boolean
   onToggleTheme: () => void
   onProfile?: () => void
+  onSignIn?: () => void
+  onSignUp?: () => void
   trailingAction?: {
     label: string
     onClick: () => void
@@ -20,8 +24,13 @@ export function MySpaceHeader({
   isDark,
   onToggleTheme,
   onProfile,
+  onSignIn,
+  onSignUp,
   trailingAction,
 }: MySpaceHeaderProps) {
+  const { user, loading } = useAuth()
+  const showAuthButtons = !loading && !user
+
   return (
     <header className="sticky top-0 z-20 shrink-0 border-b border-[color-mix(in_srgb,var(--border)_70%,transparent)] bg-[color-mix(in_srgb,var(--bg)_72%,transparent)] backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
@@ -33,7 +42,7 @@ export function MySpaceHeader({
           <MySpaceLogo size="sm" />
         )}
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           {trailingAction ? (
             <IconButton label={trailingAction.label} onClick={trailingAction.onClick}>
               {trailingAction.icon}
@@ -49,7 +58,31 @@ export function MySpaceHeader({
               <LuMoon size={18} strokeWidth={1.75} />
             )}
           </IconButton>
-          {onProfile ? (
+
+          {showAuthButtons ? (
+            <div className="ml-1 flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={onSignIn}
+              >
+                Log in
+              </Button>
+              <Button
+                type="button"
+                variant="soft"
+                size="sm"
+                className="h-8 px-2.5"
+                onClick={onSignUp}
+              >
+                Sign up
+              </Button>
+            </div>
+          ) : null}
+
+          {!showAuthButtons && !loading && onProfile ? (
             <IconButton label="Profile" onClick={onProfile}>
               <LuUser size={18} strokeWidth={1.75} />
             </IconButton>

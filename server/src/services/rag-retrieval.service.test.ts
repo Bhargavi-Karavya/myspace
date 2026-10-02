@@ -36,6 +36,8 @@ import {
 
 const MARKER = 'phase54-relevant-context';
 
+const TEST_USER_ID = 'test-user-phase49';
+
 function unitAt(index: number): number[] {
   return Array.from({ length: EMBEDDING_EXPERIMENT_DIMENSIONS }, (_, i) =>
     i === index ? 1 : 0,
@@ -148,8 +150,9 @@ describe('ragRetrieveRequestSchema validation (Phase 5.2/5.4 → 400)', () => {
 describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   it('A: returns ranked context candidates with similarity and no raw vectors', async () => {
     let embedCalled = false;
-    const result = await retrieveRelevantContext(
-      { query: 'What database do I usually prefer?', topK: 5 },
+    const result = await retrieveRelevantContext({ query: 'What database do I usually prefer?', topK: 5,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) => {
           embedCalled = true;
@@ -194,8 +197,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   });
 
   it('B: keeps multiple memories ordered by similarity descending', async () => {
-    const result = await retrieveRelevantContext(
-      { query: 'databases', topK: 5 },
+    const result = await retrieveRelevantContext({ query: 'databases', topK: 5,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(0, normalizeMockQuery(q)),
@@ -229,8 +233,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
 
   it('C: respects topK when searching', async () => {
     let receivedTopK: number | undefined;
-    await retrieveRelevantContext(
-      { query: 'query', topK: 1 },
+    await retrieveRelevantContext({ query: 'query', topK: 1,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(1, normalizeMockQuery(q)),
@@ -249,8 +254,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
     assert.equal(receivedTopK, 1);
 
     receivedTopK = undefined;
-    await retrieveRelevantContext(
-      { query: 'query', topK: 3 },
+    await retrieveRelevantContext({ query: 'query', topK: 3,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(1, normalizeMockQuery(q)),
@@ -281,13 +287,15 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
 
   it('D: passes optional category to memory search', async () => {
     let receivedCategory: string | undefined;
-    const result = await retrieveRelevantContext(
-      { query: 'What am I working on professionally?', category: 'professional', topK: 3 },
+    const result = await retrieveRelevantContext({ query: 'What am I working on professionally?', category: 'professional', topK: 3,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(2, normalizeMockQuery(q)),
-        searchMemories: async (_embedding, _topK, category) => {
-          receivedCategory = category;
+        searchMemories: async (_embedding, _topK, options) => {
+          assert.equal(options.userId, TEST_USER_ID);
+          receivedCategory = options.category;
           return [
             hit({
               id: '00000000-0000-4000-8000-000000000021',
@@ -306,8 +314,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   });
 
   it('E: empty memories array is valid when nothing matches', async () => {
-    const result = await retrieveRelevantContext(
-      { query: 'unique-no-match-query-xyz', topK: 5 },
+    const result = await retrieveRelevantContext({ query: 'unique-no-match-query-xyz', topK: 5,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(3, normalizeMockQuery(q)),
@@ -319,8 +328,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   });
 
   it('F: uses Phase 5.3 normalized query', async () => {
-    const result = await retrieveRelevantContext(
-      { query: '  What database do I usually prefer?  ', topK: 3 },
+    const result = await retrieveRelevantContext({ query: '  What database do I usually prefer?  ', topK: 3,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(0, normalizeMockQuery(q)),
@@ -342,8 +352,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   it('G: propagates query embedding failure', async () => {
     await assert.rejects(
       () =>
-        retrieveRelevantContext(
-          { query: 'query' },
+        retrieveRelevantContext({ query: 'query',
+        userId: TEST_USER_ID,
+      },
           {
             generateQueryEmbedding: async () => {
               throw new EmbeddingOutputError('bad embedding');
@@ -355,8 +366,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
 
     await assert.rejects(
       () =>
-        retrieveRelevantContext(
-          { query: 'query' },
+        retrieveRelevantContext({ query: 'query',
+        userId: TEST_USER_ID,
+      },
           {
             generateQueryEmbedding: async () => {
               throw new EmbeddingModelUnavailableError('missing model');
@@ -370,8 +382,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   it('H: propagates memory search failure', async () => {
     await assert.rejects(
       () =>
-        retrieveRelevantContext(
-          { query: 'query' },
+        retrieveRelevantContext({ query: 'query',
+        userId: TEST_USER_ID,
+      },
           {
             generateQueryEmbedding: async (q) =>
               mockQueryEmbedding(4, normalizeMockQuery(q)),
@@ -388,8 +401,9 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   it('rejects wrong query embedding dimensions', async () => {
     await assert.rejects(
       () =>
-        retrieveRelevantContext(
-          { query: 'query' },
+        retrieveRelevantContext({ query: 'query',
+        userId: TEST_USER_ID,
+      },
           {
             generateQueryEmbedding: async () => ({
               query: 'query',
@@ -406,8 +420,8 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
   });
 
   it('J: compatibility wrapper maps memories → results for public API shape', async () => {
-    const wrapped = await retrieveRelevantMemories(
-      'What database do I usually prefer?',
+    const wrapped = await retrieveRelevantMemories('What database do I usually prefer?',
+      TEST_USER_ID,
       5,
       undefined,
       {
@@ -421,7 +435,7 @@ describe('retrieveRelevantContext unit behavior (Phase 5.4)', () => {
           }),
         ],
       },
-    );
+      );
 
     assert.equal(wrapped.query, 'What database do I usually prefer?');
     assert.ok('results' in wrapped);
@@ -467,7 +481,7 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
       return;
     }
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
     await db.delete(memories).where(like(memories.content, `%${MARKER}%`));
   });
@@ -478,11 +492,13 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
     axis: number,
     importance = 0.6,
   ) {
-    await insertMemory({ content, category, importance });
-    const row = (await listMemories()).find((m) => m.content === content);
+    await insertMemory({ content, category, importance,
+      userId: TEST_USER_ID,
+    });
+    const row = (await listMemories(TEST_USER_ID)).find((m) => m.content === content);
     assert.ok(row);
     createdIds.push(row!.id);
-    await updateMemoryEmbedding(row!.id, unitAt(axis));
+    await updateMemoryEmbedding(row!.id, unitAt(axis), TEST_USER_ID);
     return row!;
   }
 
@@ -507,8 +523,9 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
       0.4,
     );
 
-    const result = await retrieveRelevantContext(
-      { query: 'What database do I usually prefer?', topK: 5 },
+    const result = await retrieveRelevantContext({ query: 'What database do I usually prefer?', topK: 5,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(0, normalizeMockQuery(q)),
@@ -547,8 +564,9 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
     await seedMarked(`${MARKER} topk b`, 'other', 1);
     await seedMarked(`${MARKER} topk c`, 'other', 2);
 
-    const one = await retrieveRelevantContext(
-      { query: 'topk', topK: 1 },
+    const one = await retrieveRelevantContext({ query: 'topk', topK: 1,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(0, normalizeMockQuery(q)),
@@ -556,8 +574,9 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
     );
     assert.equal(one.memories.length, 1);
 
-    const three = await retrieveRelevantContext(
-      { query: 'topk', topK: 3 },
+    const three = await retrieveRelevantContext({ query: 'topk', topK: 3,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(0, normalizeMockQuery(q)),
@@ -581,11 +600,11 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
     );
     await seedMarked(`${MARKER} personal hobby guitar`, 'personal', 0);
 
-    const result = await retrieveRelevantContext(
-      {
+    const result = await retrieveRelevantContext({
         query: 'What am I working on professionally?',
         topK: 5,
         category: 'professional',
+        userId: TEST_USER_ID,
       },
       {
         generateQueryEmbedding: async (q) =>
@@ -617,15 +636,17 @@ describe('retrieveRelevantContext integration (requires PostgreSQL + pgvector)',
       content: `${MARKER} no vector yet`,
       category: 'other',
       importance: 0.2,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${MARKER} no vector yet`),
     );
     assert.ok(row);
     createdIds.push(row!.id);
 
-    const result = await retrieveRelevantContext(
-      { query: `${MARKER} unique-no-match-query-xyz`, topK: 5 },
+    const result = await retrieveRelevantContext({ query: `${MARKER} unique-no-match-query-xyz`, topK: 5,
+        userId: TEST_USER_ID,
+      },
       {
         generateQueryEmbedding: async (q) =>
           mockQueryEmbedding(50, normalizeMockQuery(q)),

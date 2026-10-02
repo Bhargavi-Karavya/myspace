@@ -1,30 +1,26 @@
-import logoUrl from '../../assets/brand/myspace-logo.png'
-import markUrl from '../../assets/brand/myspace-mark.png'
+/** Brand mark — favicon for both themes. */
+const FAVICON = '/brand/favicon.png'
 
 type MySpaceLogoProps = {
   className?: string
-  /** Show the wordmark next to the mark. */
+  /** Show MySpace wordmark beside the favicon. */
   withWordmark?: boolean
   size?: 'sm' | 'md' | 'lg'
-  /** horizontal = icon + wordmark row; stacked = icon above wordmark */
+  /** Kept for API compatibility. */
   layout?: 'horizontal' | 'stacked'
+  /** Kept for API compatibility. */
+  variant?: 'badge' | 'plain'
 }
 
 const markSizes = {
   sm: 'h-8 w-8',
   md: 'h-10 w-10',
-  lg: 'h-14 w-14',
-} as const
-
-const fullLogoSizes = {
-  sm: 'h-8',
-  md: 'h-10',
-  lg: 'h-14',
+  lg: 'h-12 w-12',
 } as const
 
 const wordSizes = {
-  sm: 'text-lg',
-  md: 'text-xl',
+  sm: 'text-base',
+  md: 'text-lg',
   lg: 'text-2xl',
 } as const
 
@@ -32,61 +28,42 @@ export function MySpaceLogo({
   className = '',
   withWordmark = true,
   size = 'md',
-  layout = 'horizontal',
 }: MySpaceLogoProps) {
-  const stacked = layout === 'stacked' && withWordmark
+  const mark = (
+    <img
+      src={FAVICON}
+      alt=""
+      className={`shrink-0 object-contain ${markSizes[size]}`}
+      draggable={false}
+    />
+  )
 
-  if (withWordmark && !stacked) {
+  if (!withWordmark) {
     return (
-      <span className={`inline-flex items-center ${className}`}>
-        {/* Light: official lockup */}
-        <img
-          src={logoUrl}
-          alt="MySpace"
-          className={`${fullLogoSizes[size]} w-auto object-contain dark:hidden`}
-          draggable={false}
-        />
-        {/* Dark: original-color mark + white wordmark (same overall size) */}
-        <span className="hidden items-center gap-2.5 dark:inline-flex" aria-label="MySpace">
-          <img
-            src={markUrl}
-            alt=""
-            className={`shrink-0 object-contain ${markSizes[size]}`}
-            draggable={false}
-          />
-          <span
-            className={`font-sans tracking-[-0.03em] text-white ${wordSizes[size]}`}
-            aria-hidden
-          >
-            <span className="font-medium">My</span>
-            <span className="font-bold">Space</span>
-          </span>
-        </span>
+      <span
+        className={`inline-flex items-center ${className}`}
+        role="img"
+        aria-label="MySpace"
+      >
+        {mark}
       </span>
     )
   }
 
   return (
     <span
-      className={`inline-flex items-center ${
-        stacked ? 'flex-col gap-2' : 'gap-2.5'
-      } ${className}`}
+      className={`inline-flex items-center gap-2.5 ${className}`}
+      role="img"
+      aria-label="MySpace"
     >
-      <img
-        src={markUrl}
-        alt={withWordmark ? '' : 'MySpace'}
-        className={`shrink-0 object-contain ${markSizes[size]}`}
-        draggable={false}
-      />
-      {withWordmark ? (
-        <span
-          className={`font-sans tracking-[-0.03em] text-[var(--fg)] dark:text-white ${wordSizes[size]}`}
-          aria-label="MySpace"
-        >
-          <span className="font-medium">My</span>
-          <span className="font-bold">Space</span>
-        </span>
-      ) : null}
+      {mark}
+      <span
+        className={`myspace-wordmark font-sans tracking-[-0.03em] ${wordSizes[size]}`}
+        aria-hidden
+      >
+        <span className="font-medium">My</span>
+        <span className="font-bold">Space</span>
+      </span>
     </span>
   )
 }

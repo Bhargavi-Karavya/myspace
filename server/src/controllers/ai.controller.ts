@@ -59,13 +59,21 @@ import {
 } from '../services/rag-retrieval.service.js';
 import { QueryEmbeddingInputError } from '../services/query-embedding.service.js';
 import {
+  buildUserRagContextForChat,
+  formatRagContextForSystemInstruction,
+} from '../services/chat-rag.service.js';
+import {
   ConversationNotFoundError,
+  createConversation,
+  deleteConversation,
   getConversation,
   getConversationWithMessages,
   getRecentConversations,
   persistChatTurn,
+  renameConversation,
   toApiMessageRole,
 } from '../services/conversation.service.js';
+import { getAuthenticatedUserId } from '../middleware/auth.js';
 import {
   chatRequestSchema,
   classifyRequestSchema,
@@ -85,6 +93,7 @@ import {
   memorySearchRequestSchema,
   patchMemoryRequestSchema,
   ragRetrieveRequestSchema,
+  renameConversationRequestSchema,
   structuredRequestSchema,
 } from '../validators/ai.validator.js';
 
@@ -1062,6 +1071,7 @@ export async function memoryExtractWithAi(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memoryExtractRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -1076,7 +1086,7 @@ export async function memoryExtractWithAi(
   }
 
   try {
-    const result = await extractAndStoreMemories(parsed.data.message);
+    const result = await extractAndStoreMemories(parsed.data.message, userId);
     response.status(200).json(result);
   } catch (error) {
     if (error instanceof MemoryExtractOutputError) {
@@ -1138,6 +1148,7 @@ export async function listMemoriesHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = listMemoriesQuerySchema.safeParse(request.query);
 
   if (!parsed.success) {
@@ -1152,7 +1163,7 @@ export async function listMemoriesHandler(
   }
 
   try {
-    const memories = await getMemories(parsed.data.category);
+    const memories = await getMemories(userId, parsed.data.category);
     response.status(200).json({ memories });
   } catch (error) {
     console.error('Memory list failed:', {
@@ -1169,6 +1180,7 @@ export async function listMemoriesHandler(
  * Phase 3.10 — get one stored memory by id.
  */
 export async function getMemoryHandler(request: Request, response: Response) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memoryIdParamSchema.safeParse(request.params);
 
   if (!parsed.success) {
@@ -1183,7 +1195,7 @@ export async function getMemoryHandler(request: Request, response: Response) {
   }
 
   try {
-    const memory = await getMemory(parsed.data.id);
+    const memory = await getMemory(parsed.data.id, userId);
     response.status(200).json({ memory });
   } catch (error) {
     if (error instanceof MemoryNotFoundError) {
@@ -1210,6 +1222,7 @@ export async function memoryEmbeddingTestHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memoryIdParamSchema.safeParse(request.params);
 
   if (!parsed.success) {
@@ -1224,7 +1237,7 @@ export async function memoryEmbeddingTestHandler(
   }
 
   try {
-    const result = await generateEmbeddingForMemory(parsed.data.id);
+    const result = await generateEmbeddingForMemory(parsed.data.id, userId);
     response.status(200).json(result);
   } catch (error) {
     if (error instanceof MemoryNotFoundError) {
@@ -1298,6 +1311,7 @@ export async function searchMemoriesHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memorySearchRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -1315,7 +1329,7 @@ export async function searchMemoriesHandler(
     const result = await searchMemoriesBySimilarity(
       parsed.data.query,
       parsed.data.topK,
-      parsed.data.category,
+      { userId, category: parsed.data.category },
     );
     response.status(200).json(result);
   } catch (error) {
@@ -1396,6 +1410,7 @@ export async function ragRetrieveHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = ragRetrieveRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -1412,6 +1427,7 @@ export async function ragRetrieveHandler(
   try {
     const result = await retrieveRelevantContext({
       query: parsed.data.query,
+      userId,
       topK: parsed.data.topK,
       category: parsed.data.category,
     });
@@ -1502,6 +1518,7 @@ export async function persistMemoryEmbeddingHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memoryIdParamSchema.safeParse(request.params);
 
   if (!parsed.success) {
@@ -1516,7 +1533,7 @@ export async function persistMemoryEmbeddingHandler(
   }
 
   try {
-    const result = await persistEmbeddingForMemory(parsed.data.id);
+    const result = await persistEmbeddingForMemory(parsed.data.id, userId);
     response.status(200).json(result);
   } catch (error) {
     if (error instanceof MemoryNotFoundError) {
@@ -1592,6 +1609,7 @@ export async function patchMemoryHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const params = memoryIdParamSchema.safeParse(request.params);
   if (!params.success) {
     response.status(400).json({
@@ -1617,7 +1635,7 @@ export async function patchMemoryHandler(
   }
 
   try {
-    const memory = await editMemory(params.data.id, body.data);
+    const memory = await editMemory(params.data.id, body.data, userId);
     response.status(200).json({ memory });
   } catch (error) {
     if (error instanceof MemoryNotFoundError) {
@@ -1690,6 +1708,7 @@ export async function patchMemoryHandler(
  * Phase 3.8 — explicitly forget (permanently delete) a memory by id.
  */
 export async function deleteMemory(request: Request, response: Response) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = memoryIdParamSchema.safeParse(request.params);
 
   if (!parsed.success) {
@@ -1704,7 +1723,7 @@ export async function deleteMemory(request: Request, response: Response) {
   }
 
   try {
-    await forgetMemory(parsed.data.id);
+    await forgetMemory(parsed.data.id, userId);
     response.status(200).json({
       message: 'Memory deleted successfully',
     });
@@ -1730,11 +1749,19 @@ export async function deleteMemory(request: Request, response: Response) {
  * List recent conversations for the Conversations screen.
  */
 export async function listConversationsHandler(
-  _request: Request,
+  request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
+  const startedAt = Date.now();
   try {
-    const rows = await getRecentConversations(50);
+    console.info('[conversations] list start', { userId });
+    const rows = await getRecentConversations(userId, 50);
+    console.info('[conversations] list ok', {
+      userId,
+      count: rows.length,
+      ms: Date.now() - startedAt,
+    });
     response.status(200).json({
       conversations: rows.map((row) => ({
         id: row.id,
@@ -1746,9 +1773,36 @@ export async function listConversationsHandler(
   } catch (error) {
     console.error('List conversations failed:', {
       errorType: error instanceof Error ? error.name : 'unknown',
+      message: error instanceof Error ? error.message : String(error),
+      ms: Date.now() - startedAt,
     });
     response.status(500).json({
       error: 'Unable to load conversations right now',
+    });
+  }
+}
+
+/**
+ * Create an empty conversation owned by the authenticated user.
+ */
+export async function createConversationHandler(
+  request: Request,
+  response: Response,
+) {
+  const userId = getAuthenticatedUserId(request);
+  try {
+    const conversation = await createConversation({ userId });
+    response.status(201).json({
+      id: conversation.id,
+      title: conversation.title ?? 'Untitled conversation',
+      updatedAt: conversation.updatedAt.toISOString(),
+    });
+  } catch (error) {
+    console.error('Create conversation failed:', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to create conversation right now',
     });
   }
 }
@@ -1760,6 +1814,7 @@ export async function getConversationHandler(
   request: Request,
   response: Response,
 ) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = conversationIdParamSchema.safeParse(request.params);
   if (!parsed.success) {
     response.status(400).json({
@@ -1775,6 +1830,7 @@ export async function getConversationHandler(
   try {
     const { conversation, messages } = await getConversationWithMessages(
       parsed.data.id,
+      userId,
     );
     response.status(200).json({
       id: conversation.id,
@@ -1802,7 +1858,105 @@ export async function getConversationHandler(
   }
 }
 
+/**
+ * Permanently delete a conversation owned by the authenticated user.
+ */
+export async function deleteConversationHandler(
+  request: Request,
+  response: Response,
+) {
+  const userId = getAuthenticatedUserId(request);
+  const parsed = conversationIdParamSchema.safeParse(request.params);
+  if (!parsed.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: parsed.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    await deleteConversation(parsed.data.id, userId);
+    response.status(200).json({ message: 'Conversation deleted successfully' });
+  } catch (error) {
+    if (error instanceof ConversationNotFoundError) {
+      response.status(404).json({ error: 'Conversation not found' });
+      return;
+    }
+
+    console.error('Delete conversation failed:', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
+    response.status(500).json({
+      error: 'Unable to delete conversation right now',
+    });
+  }
+}
+
+/**
+ * Rename a conversation owned by the authenticated user.
+ */
+export async function renameConversationHandler(
+  request: Request,
+  response: Response,
+) {
+  const userId = getAuthenticatedUserId(request);
+  const params = conversationIdParamSchema.safeParse(request.params);
+  if (!params.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: params.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'id',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  const body = renameConversationRequestSchema.safeParse(request.body);
+  if (!body.success) {
+    response.status(400).json({
+      error: 'Invalid request',
+      details: body.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'title',
+        message: issue.message,
+      })),
+    });
+    return;
+  }
+
+  try {
+    const conversation = await renameConversation(
+      params.data.id,
+      userId,
+      body.data.title,
+    );
+    response.status(200).json({
+      id: conversation.id,
+      title: conversation.title ?? 'Untitled conversation',
+      updatedAt: conversation.updatedAt.toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof ConversationNotFoundError) {
+      response.status(404).json({ error: 'Conversation not found' });
+      return;
+    }
+
+    console.error('Rename conversation failed:', {
+      errorType: error instanceof Error ? error.name : 'unknown',
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: 'Unable to rename conversation right now',
+    });
+  }
+}
+
 export async function chatWithAi(request: Request, response: Response) {
+  const userId = getAuthenticatedUserId(request);
   const parsed = chatRequestSchema.safeParse(request.body);
 
   if (!parsed.success) {
@@ -1835,7 +1989,7 @@ export async function chatWithAi(request: Request, response: Response) {
 
   if (parsed.data.conversationId) {
     try {
-      await getConversation(parsed.data.conversationId);
+      await getConversation(parsed.data.conversationId, userId);
     } catch (error) {
       if (error instanceof ConversationNotFoundError) {
         response.status(404).json({ error: 'Conversation not found' });
@@ -1857,11 +2011,29 @@ export async function chatWithAi(request: Request, response: Response) {
   };
   response.on('close', onResponseClose);
 
+  let ragSystemInstructionExtra = '';
+  try {
+    const ragContext = await buildUserRagContextForChat({
+      query: lastUserMessage.content,
+      userId,
+    });
+    ragSystemInstructionExtra =
+      formatRagContextForSystemInstruction(ragContext);
+  } catch (ragError) {
+    console.error('Chat RAG context failed; continuing without memories:', {
+      errorType: ragError instanceof Error ? ragError.name : 'unknown',
+      message:
+        ragError instanceof Error ? ragError.message : String(ragError),
+    });
+  }
+
   let stream: Awaited<ReturnType<typeof startMessageStream>>;
 
   try {
     console.log('AI Gemini request started');
-    stream = await startMessageStream(parsed.data.messages);
+    stream = await startMessageStream(parsed.data.messages, {
+      systemInstructionExtra: ragSystemInstructionExtra,
+    });
   } catch (error) {
     response.off('close', onResponseClose);
     console.log(
@@ -1887,6 +2059,7 @@ export async function chatWithAi(request: Request, response: Response) {
   let assistantText = '';
   let firstChunkLogged = false;
   let conversationId = parsed.data.conversationId;
+  let persistedSuccessfully = false;
 
   try {
     for await (const chunk of stream) {
@@ -1917,11 +2090,13 @@ export async function chatWithAi(request: Request, response: Response) {
     if (assistantText.trim() && lastUserMessage.content.trim()) {
       try {
         const persisted = await persistChatTurn({
+          userId,
           conversationId,
           userContent: lastUserMessage.content,
           assistantContent: assistantText,
         });
         conversationId = persisted.conversationId;
+        persistedSuccessfully = true;
         if (!response.writableEnded && !clientDisconnected) {
           writeSse(response, { conversationId });
         }
@@ -1943,6 +2118,22 @@ export async function chatWithAi(request: Request, response: Response) {
         writeSse(response, { done: true });
       }
       response.end();
+    }
+
+    // Fire-and-forget memory extraction after SSE done — never blocks chat.
+    if (persistedSuccessfully && lastUserMessage.content.trim()) {
+      void extractAndStoreMemories(lastUserMessage.content, userId).catch(
+        (extractError) => {
+          console.error('Background memory extraction failed:', {
+            errorType:
+              extractError instanceof Error ? extractError.name : 'unknown',
+            message:
+              extractError instanceof Error
+                ? extractError.message
+                : String(extractError),
+          });
+        },
+      );
     }
 
     console.log(
@@ -1974,6 +2165,46 @@ export async function chatWithAi(request: Request, response: Response) {
       return;
     }
 
+    // If Gemini failed after streaming some tokens, still save the partial
+    // turn so Recent Chats updates (same idea as the 503 partial path).
+    const shouldPersistPartial =
+      Boolean(assistantText.trim()) && Boolean(lastUserMessage.content.trim());
+
+    if (shouldPersistPartial) {
+      try {
+        const persisted = await persistChatTurn({
+          userId,
+          conversationId,
+          userContent: lastUserMessage.content,
+          assistantContent: assistantText,
+        });
+        conversationId = persisted.conversationId;
+        persistedSuccessfully = true;
+        writeSse(response, { conversationId: persisted.conversationId });
+        void extractAndStoreMemories(lastUserMessage.content, userId).catch(
+          (extractError) => {
+            console.error('Background memory extraction failed:', {
+              errorType:
+                extractError instanceof Error ? extractError.name : 'unknown',
+              message:
+                extractError instanceof Error
+                  ? extractError.message
+                  : String(extractError),
+            });
+          },
+        );
+      } catch (persistError) {
+        console.error('Chat persistence failed after partial reply:', {
+          errorType:
+            persistError instanceof Error ? persistError.name : 'unknown',
+          message:
+            persistError instanceof Error
+              ? persistError.message
+              : String(persistError),
+        });
+      }
+    }
+
     // Quota / rate-limit after headers were sent: stay on SSE, never send JSON.
     if (isGeminiQuotaOrRateLimitError(error)) {
       writeSse(response, { error: SAFE_AI_UNAVAILABLE_ERROR });
@@ -1981,27 +2212,11 @@ export async function chatWithAi(request: Request, response: Response) {
       return;
     }
 
-    // Capacity spike after some tokens: keep what we already sent instead of
-    // failing the whole turn with a JSON/SSE error mid-reply.
+    // Capacity spike after some tokens: keep the partial reply as a finished turn.
     if (getGeminiErrorStatus(error) === 503 && charCount > 0) {
       console.warn(
         `Gemini 503 mid-stream after ${charCount} char(s); finishing with partial reply`,
       );
-      if (assistantText.trim() && lastUserMessage.content.trim()) {
-        try {
-          const persisted = await persistChatTurn({
-            conversationId,
-            userContent: lastUserMessage.content,
-            assistantContent: assistantText,
-          });
-          writeSse(response, { conversationId: persisted.conversationId });
-        } catch (persistError) {
-          console.error('Chat persistence failed after partial reply:', {
-            errorType:
-              persistError instanceof Error ? persistError.name : 'unknown',
-          });
-        }
-      }
       writeSse(response, { done: true });
       response.end();
       return;
@@ -2014,6 +2229,13 @@ export async function chatWithAi(request: Request, response: Response) {
         retryAfterSeconds: 5,
         status: 503,
       });
+      response.end();
+      return;
+    }
+
+    // Partial text already saved above — finish cleanly so the client keeps it.
+    if (shouldPersistPartial && persistedSuccessfully) {
+      writeSse(response, { done: true });
       response.end();
       return;
     }

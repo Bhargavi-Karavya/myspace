@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../../lib/AuthProvider'
 import { ChatRequestError, sendChatMessages } from '../../services/chatApi'
 import type { ChatComposerStatus, ChatMessage } from '../../types/chat'
 import { ChatComposer } from './ChatComposer'
 import { ChatThread } from './ChatThread'
+import { ChatWelcome } from './ChatWelcome'
 
 function createId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -12,13 +14,19 @@ type HomeScreenProps = {
   initialMessages?: ChatMessage[]
   conversationId?: string | null
   onConversationIdChange?: (conversationId: string) => void
+  /** Called after any completed turn so Recent chats can refresh. */
+  onConversationPersisted?: (conversationId: string) => void
+  onRequireAuth?: () => void
 }
 
 export function HomeScreen({
   initialMessages = [],
   conversationId = null,
   onConversationIdChange,
+  onConversationPersisted,
+  onRequireAuth,
 }: HomeScreenProps) {
+  const { user } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
@@ -55,12 +63,22 @@ export function HomeScreen({
   const isQuotaBlocked = quotaSecondsLeft > 0
 
   function rememberConversationId(nextId: string | undefined) {
-    if (!nextId || nextId === activeConversationId) return
-    setActiveConversationId(nextId)
-    onConversationIdChange?.(nextId)
+    if (!nextId) return
+    if (nextId !== activeConversationId) {
+      setActiveConversationId(nextId)
+      onConversationIdChange?.(nextId)
+    }
+    // Always refresh Recent — including follow-up turns in the same thread.
+    onConversationPersisted?.(nextId)
   }
 
   async function requestModelReply(conversation: ChatMessage[]) {
+    if (!user) {
+      setError('Please sign in to continue')
+      onRequireAuth?.()
+      return
+    }
+
     if (isQuotaBlocked) {
       setError(
         `Gemini free-tier limit reached. Please wait ${quotaSecondsLeft}s before trying a new message.`,
@@ -127,7 +145,15 @@ export function HomeScreen({
       }
       setUsedCache(result.fromCache)
     } catch (sendError) {
-      if (sendError instanceof ChatRequestError && sendError.status === 429) {
+      if (sendError instanceof ChatRequestError && sendError.status === 401) {
+        if (startedModelMessage) {
+          setMessages((current) =>
+            current.filter((message) => message.id !== modelMessageId),
+          )
+        }
+        setError('Please sign in to continue')
+        onRequireAuth?.()
+      } else if (sendError instanceof ChatRequestError && sendError.status === 429) {
         const waitSeconds = sendError.retryAfterSeconds ?? 60
         setQuotaBlockedUntil(Date.now() + waitSeconds * 1000)
         setError(
@@ -168,6 +194,12 @@ export function HomeScreen({
     const trimmed = content.trim()
     if (!trimmed || isSending || isQuotaBlocked) return
 
+    if (!user) {
+      setError('Please sign in to save conversations and use personal memory')
+      onRequireAuth?.()
+      return
+    }
+
     const last = messages[messages.length - 1]
     const canRetryFailedTurn =
       Boolean(error) &&
@@ -199,55 +231,92 @@ export function HomeScreen({
         ? 'typing'
         : 'idle'
 
+  const composerHint = isQuotaBlocked
+    ? `Quota pause · ${quotaSecondsLeft}s left`
+    : !user
+      ? 'Sign in to save conversations and use personal memory'
+      : usedCache
+        ? 'Reused a saved reply for this exact message'
+        : activeConversationId
+          ? 'Saving to Recent chats'
+          : 'Enter to send · Shift+Enter for a new line'
+
+  const hasMessages = messages.length > 0
+  const composerLayout = hasMessages ? 'docked' : 'welcome'
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <ChatThread
-        messages={messages}
-        isSending={isSending}
-        onSuggestionSelect={setDraft}
-      />
-      <div className="shrink-0">
-        {error ? (
-          <div className="msg-enter flex items-center justify-center gap-3 border-t border-[var(--border)] bg-[color-mix(in_srgb,var(--bg-elevated)_90%,transparent)] px-4 py-2 backdrop-blur-md">
-            <p className="text-xs text-red-400">{error}</p>
-            {!isQuotaBlocked ? (
-              <button
-                type="button"
-                disabled={isSending}
-                onClick={() => {
-                  const last = messages[messages.length - 1]
-                  if (last?.role === 'user') {
-                    void requestModelReply(messages)
-                  }
-                }}
-                className="text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-50"
-              >
-                Retry
-              </button>
-            ) : null}
+    <div
+      className={`home-stage flex min-h-0 flex-1 flex-col overflow-hidden ${
+        hasMessages ? 'is-chatting' : 'is-welcome'
+      }`}
+    >
+      <div className="home-stage__content flex min-h-0 flex-1 flex-col">
+        {hasMessages ? (
+          <ChatThread messages={messages} isSending={isSending} />
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto py-6">
+            <ChatWelcome
+              onSuggestionSelect={setDraft}
+              disabled={isSending || isQuotaBlocked}
+            />
+            <ChatComposer
+              value={draft}
+              onChange={(value) => {
+                setDraft(value)
+                if (error && !isQuotaBlocked) setError(null)
+              }}
+              onSubmit={() => {
+                void sendMessage(draft)
+              }}
+              status={composerStatus}
+              hint={composerHint}
+              layout="welcome"
+            />
           </div>
-        ) : null}
-        <ChatComposer
-          value={draft}
-          onChange={(value) => {
-            setDraft(value)
-            if (error && !isQuotaBlocked) setError(null)
-          }}
-          onSubmit={() => {
-            void sendMessage(draft)
-          }}
-          status={composerStatus}
-          hint={
-            isQuotaBlocked
-              ? `Quota pause · ${quotaSecondsLeft}s left · identical old messages can still reuse saved replies`
-              : usedCache
-                ? 'Reused a saved reply for this exact message — Gemini was not called again'
-                : activeConversationId
-                  ? 'Saving this chat to Recent conversations'
-                  : 'Connected to MySpace chat API · chats are saved after each reply'
-          }
-        />
+        )}
       </div>
+
+      {hasMessages ? (
+        <div className="composer-dock shrink-0">
+          {error ? (
+            <div className="msg-enter flex items-center justify-center gap-3 border-t border-[var(--border)] bg-[var(--bg)] px-4 py-2">
+              <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+              {!isQuotaBlocked && user ? (
+                <button
+                  type="button"
+                  disabled={isSending}
+                  onClick={() => {
+                    const last = messages[messages.length - 1]
+                    if (last?.role === 'user') {
+                      void requestModelReply(messages)
+                    }
+                  }}
+                  className="text-xs font-medium text-[var(--accent)] hover:underline disabled:opacity-50"
+                >
+                  Retry
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <ChatComposer
+            value={draft}
+            onChange={(value) => {
+              setDraft(value)
+              if (error && !isQuotaBlocked) setError(null)
+            }}
+            onSubmit={() => {
+              void sendMessage(draft)
+            }}
+            status={composerStatus}
+            hint={composerHint}
+            layout={composerLayout}
+          />
+        </div>
+      ) : error ? (
+        <div className="msg-enter flex items-center justify-center gap-3 px-4 pb-4">
+          <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+        </div>
+      ) : null}
     </div>
   )
 }

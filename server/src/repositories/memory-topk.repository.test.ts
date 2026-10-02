@@ -23,6 +23,8 @@ import { memorySearchRequestSchema } from '../validators/ai.validator.js';
 
 const MARKER = 'phase412-topk';
 
+const TEST_USER_ID = 'test-user-phase49';
+
 function unitAt(index: number): number[] {
   return Array.from({ length: EMBEDDING_EXPERIMENT_DIMENSIONS }, (_, i) =>
     i === index ? 1 : 0,
@@ -96,7 +98,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
     await db.delete(memories).where(like(memories.content, `%${MARKER}%`));
   });
@@ -108,26 +110,31 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
       content: `${MARKER} near`,
       category: 'preference',
       importance: 0.9,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} mid`,
       category: 'preference',
       importance: 0.7,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} far`,
       category: 'preference',
       importance: 0.5,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} null`,
       category: 'preference',
       importance: 0.4,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} other-cat`,
       category: 'professional',
       importance: 0.8,
+      userId: TEST_USER_ID,
     });
 
     const rows = await db
@@ -138,10 +145,10 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
     const byContent = Object.fromEntries(rows.map((r) => [r.content, r.id]));
     createdIds.push(...rows.map((r) => r.id));
 
-    await updateMemoryEmbedding(byContent[`${MARKER} near`]!, unitAt(0));
-    await updateMemoryEmbedding(byContent[`${MARKER} mid`]!, unitAt(1));
-    await updateMemoryEmbedding(byContent[`${MARKER} far`]!, unitAt(2));
-    await updateMemoryEmbedding(byContent[`${MARKER} other-cat`]!, unitAt(0));
+    await updateMemoryEmbedding(byContent[`${MARKER} near`]!, unitAt(0), TEST_USER_ID);
+    await updateMemoryEmbedding(byContent[`${MARKER} mid`]!, unitAt(1), TEST_USER_ID);
+    await updateMemoryEmbedding(byContent[`${MARKER} far`]!, unitAt(2), TEST_USER_ID);
+    await updateMemoryEmbedding(byContent[`${MARKER} other-cat`]!, unitAt(0), TEST_USER_ID);
     // null left without embedding
 
     const query = unitAt(0);
@@ -153,7 +160,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
 
   it('topK=1 returns at most one row, highest similarity first', async () => {
     const { byContent, query } = await seedThreePreferencePlusNull();
-    const results = await searchSimilarMemories(query, 1, 'preference');
+    const results = await searchSimilarMemories(query, 1, { userId: TEST_USER_ID, category: 'preference' });
     assert.equal(results.length, 1);
     assert.equal(results[0]!.id, byContent[`${MARKER} near`]);
     assert.equal(results[0]!.category, 'preference');
@@ -163,7 +170,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
   it('topK=2 and topK=3 return ordered preference matches only', async () => {
     const { byContent, query } = await seedThreePreferencePlusNull();
 
-    const two = await searchSimilarMemories(query, 2, 'preference');
+    const two = await searchSimilarMemories(query, 2, { userId: TEST_USER_ID, category: 'preference' });
     assert.equal(two.length, 2);
     assert.deepEqual(
       two.map((r) => r.id),
@@ -171,7 +178,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
     );
     assert.ok(two[0]!.similarity >= two[1]!.similarity);
 
-    const three = await searchSimilarMemories(query, 3, 'preference');
+    const three = await searchSimilarMemories(query, 3, { userId: TEST_USER_ID, category: 'preference' });
     assert.equal(three.length, 3);
     assert.deepEqual(
       three.map((r) => r.id),
@@ -191,7 +198,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
 
   it('topK larger than available matching rows returns all matches', async () => {
     const { query } = await seedThreePreferencePlusNull();
-    const results = await searchSimilarMemories(query, 10, 'preference');
+    const results = await searchSimilarMemories(query, 10, { userId: TEST_USER_ID, category: 'preference' });
     const marked = results.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 3);
     assert.ok(marked.length < 10);
@@ -203,6 +210,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
       content: `${MARKER} only-null`,
       category: 'goal',
       importance: 0.2,
+      userId: TEST_USER_ID,
     });
     const [row] = await db
       .select({ id: memories.id })
@@ -210,14 +218,14 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
       .where(like(memories.content, `${MARKER} only-null`));
     createdIds.push(row!.id);
 
-    const results = await searchSimilarMemories(unitAt(7), 5, 'goal');
+    const results = await searchSimilarMemories(unitAt(7), 5, { userId: TEST_USER_ID, category: 'goal' });
     const marked = results.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 0);
   });
 
   it('category + topK together limit in PostgreSQL', async () => {
     const { byContent, query } = await seedThreePreferencePlusNull();
-    const results = await searchSimilarMemories(query, 1, 'professional');
+    const results = await searchSimilarMemories(query, 1, { userId: TEST_USER_ID, category: 'professional' });
     assert.equal(results.length, 1);
     assert.equal(results[0]!.id, byContent[`${MARKER} other-cat`]);
     assert.equal(results[0]!.category, 'professional');
@@ -226,10 +234,7 @@ describe('searchSimilarMemories Top-K LIMIT (requires PostgreSQL + pgvector)', (
   it('rejects repository topK above maximum', async () => {
     await assert.rejects(
       () =>
-        searchSimilarMemories(
-          unitAt(0),
-          MEMORY_SEARCH_MAX_TOP_K + 1,
-        ),
+        searchSimilarMemories(unitAt(0), MEMORY_SEARCH_MAX_TOP_K + 1, { userId: TEST_USER_ID }),
       /topK must be at most/,
     );
   });

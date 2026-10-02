@@ -26,6 +26,13 @@ export const memories = pgTable(
   'memories',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    /**
+     * Neon Auth user id (Better Auth `user.id` / JWT `sub`).
+     * Opaque text — not assumed UUID. Nullable so pre-ownership legacy rows
+     * remain intact and are excluded from user-scoped queries.
+     * No FK: Neon Auth identities live in managed `neon_auth` (not app Drizzle).
+     */
+    userId: text('user_id'),
     content: text('content').notNull(),
     category: memoryCategoryEnum('category').notNull(),
     /** Long-term usefulness metadata (0–1). Not a confidence/truth score. */
@@ -49,6 +56,7 @@ export const memories = pgTable(
       'memories_importance_range',
       sql`${table.importance} >= 0 AND ${table.importance} <= 1`,
     ),
+    index('memories_user_id_idx').on(table.userId),
     /**
      * Phase 4.10 — HNSW is an approximate nearest-neighbor (ANN) vector index.
      * It improves similarity-search latency at scale versus exact brute-force

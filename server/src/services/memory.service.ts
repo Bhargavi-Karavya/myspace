@@ -24,6 +24,7 @@ import type { MemoryExtractAiResponse } from '../validators/ai-memory-extract-re
 import { generateMemoryExtraction } from './gemini.service.js';
 import {
   generateEmbeddingFromMemoryContent,
+  persistEmbeddingForMemory,
   type MemoryContentEmbedding,
 } from './memory-embedding.service.js';
 
@@ -45,9 +46,12 @@ export type EditMemoryDeps = {
   ) => Promise<MemoryContentEmbedding>;
 };
 
-async function toPatchedMemory(memory: MemoryRecord): Promise<PatchedMemory> {
+async function toPatchedMemory(
+  memory: MemoryRecord,
+  userId: string,
+): Promise<PatchedMemory> {
   const embeddingDimensions = memory.hasEmbedding
-    ? ((await getMemoryEmbeddingDimensions(memory.id)) ??
+    ? ((await getMemoryEmbeddingDimensions(memory.id, userId)) ??
       EMBEDDING_EXPERIMENT_DIMENSIONS)
     : null;
 
@@ -57,19 +61,30 @@ async function toPatchedMemory(memory: MemoryRecord): Promise<PatchedMemory> {
   };
 }
 
+type UpsertResult = {
+  memory: SavedMemory;
+  /** True when content was inserted or content text changed (embedding needed). */
+  contentChanged: boolean;
+};
+
 /**
  * Persist one extracted memory: insert, update, or no-op when identical.
+ * Matching and writes are scoped to userId.
  */
-async function upsertExtractedMemory(item: {
-  content: string;
-  category: MemoryCategory;
-  importance: number;
-}): Promise<SavedMemory> {
-  const existing = await findMemoriesByCategory(item.category);
+async function upsertExtractedMemory(
+  item: {
+    content: string;
+    category: MemoryCategory;
+    importance: number;
+  },
+  userId: string,
+): Promise<UpsertResult> {
+  const existing = await findMemoriesByCategory(item.category, userId);
   const match = findBestMemoryMatch(item.content, existing);
 
   if (!match) {
-    return insertMemory(item);
+    const memory = await insertMemory({ ...item, userId });
+    return { memory, contentChanged: true };
   }
 
   const existingImportance = match.memory.importance;
@@ -80,32 +95,48 @@ async function upsertExtractedMemory(item: {
     if (!importanceChanged) {
       // Same content and importance — keep the existing row untouched.
       return {
-        content: match.memory.content,
-        category: match.memory.category,
-        importance: existingImportance,
+        memory: {
+          id: match.memory.id,
+          content: match.memory.content,
+          category: match.memory.category,
+          importance: existingImportance,
+        },
+        contentChanged: false,
       };
     }
 
     // Same content, meaningfully different importance metadata.
-    return updateMemory(match.memory.id, {
-      content: match.memory.content,
-      importance: item.importance,
-    });
+    const memory = await updateMemory(
+      match.memory.id,
+      {
+        content: match.memory.content,
+        importance: item.importance,
+      },
+      userId,
+    );
+    return { memory, contentChanged: false };
   }
 
   // Content changed — update content and take the new importance score.
-  return updateMemory(match.memory.id, {
-    content: item.content,
-    importance: item.importance,
-  });
+  const memory = await updateMemory(
+    match.memory.id,
+    {
+      content: item.content,
+      importance: item.importance,
+    },
+    userId,
+  );
+  return { memory, contentChanged: true };
 }
 
 /**
  * Phase 3.5/3.7/3.9/3.11: redact obvious secrets, extract via Gemini,
  * privacy-filter candidates, then insert or update by same-category matching.
+ * All DB access is scoped to the authenticated userId.
  */
 export async function extractAndStoreMemories(
   message: string,
+  userId: string,
 ): Promise<MemoryExtractAiResponse> {
   // Defense-in-depth: strip obvious secrets before the model sees them.
   // Non-secret context in the same message is preserved for extraction.
@@ -144,13 +175,28 @@ export async function extractAndStoreMemories(
 
   const saved: SavedMemory[] = [];
   for (const memory of accepted) {
-    saved.push(
-      await upsertExtractedMemory({
+    const { memory: stored, contentChanged } = await upsertExtractedMemory(
+      {
         content: memory.content,
         category: memory.category,
         importance: memory.importance,
-      }),
+      },
+      userId,
     );
+
+    if (contentChanged) {
+      try {
+        await persistEmbeddingForMemory(stored.id, userId);
+      } catch (error) {
+        // DB write already succeeded — do not fail extraction for embedding errors.
+        console.error('Memory extraction: embedding persist failed', {
+          memoryId: stored.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    saved.push(stored);
   }
 
   return { memories: saved };
@@ -166,27 +212,31 @@ export class MemoryNotFoundError extends Error {
 /**
  * Phase 3.8: permanently delete a memory by id when the user asks to forget it.
  */
-export async function forgetMemory(id: string): Promise<void> {
-  const deleted = await deleteMemoryById(id);
+export async function forgetMemory(id: string, userId: string): Promise<void> {
+  const deleted = await deleteMemoryById(id, userId);
   if (!deleted) {
     throw new MemoryNotFoundError(id);
   }
 }
 
 /**
- * Phase 3.10: list stored memories, optionally filtered by category.
+ * Phase 3.10: list stored memories for a user, optionally filtered by category.
  */
 export async function getMemories(
+  userId: string,
   category?: MemoryCategory,
 ): Promise<MemoryRecord[]> {
-  return listMemories(category);
+  return listMemories(userId, category);
 }
 
 /**
- * Phase 3.10: fetch one stored memory by id.
+ * Phase 3.10: fetch one stored memory by id owned by userId.
  */
-export async function getMemory(id: string): Promise<MemoryRecord> {
-  const memory = await findMemoryById(id);
+export async function getMemory(
+  id: string,
+  userId: string,
+): Promise<MemoryRecord> {
+  const memory = await findMemoryById(id, userId);
   if (!memory) {
     throw new MemoryNotFoundError(id);
   }
@@ -209,9 +259,10 @@ export async function getMemory(id: string): Promise<MemoryRecord> {
 export async function editMemory(
   id: string,
   updates: MemoryPatchInput,
+  userId: string,
   deps: EditMemoryDeps = {},
 ): Promise<PatchedMemory> {
-  const existing = await findMemoryById(id);
+  const existing = await findMemoryById(id, userId);
   if (!existing) {
     throw new MemoryNotFoundError(id);
   }
@@ -222,11 +273,11 @@ export async function editMemory(
 
   if (!contentChanged) {
     // Metadata-only, or content echoed unchanged — no embedding regeneration.
-    const memory = await patchMemoryById(id, updates);
+    const memory = await patchMemoryById(id, updates, userId);
     if (!memory) {
       throw new MemoryNotFoundError(id);
     }
-    return toPatchedMemory(memory);
+    return toPatchedMemory(memory, userId);
   }
 
   const generate =
@@ -245,10 +296,11 @@ export async function editMemory(
     id,
     { ...updates, content: updates.content! },
     embedding.vector,
+    userId,
   );
   if (!memory) {
     throw new MemoryNotFoundError(id);
   }
 
-  return toPatchedMemory(memory);
+  return toPatchedMemory(memory, userId);
 }

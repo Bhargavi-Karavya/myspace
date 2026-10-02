@@ -16,6 +16,13 @@ export const conversations = pgTable(
   'conversations',
   {
     id: uuid('id').defaultRandom().primaryKey(),
+    /**
+     * Neon Auth user id owning this conversation.
+     * Nullable only for pre-ownership legacy rows (excluded from user queries).
+     * New conversations always set userId. No redundant userId on messages —
+     * ownership is enforced via conversation FK + cascade.
+     */
+    userId: text('user_id'),
     /** Nullable until a later task sets title (first message / generation). */
     title: text('title'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -26,6 +33,7 @@ export const conversations = pgTable(
       .notNull(),
   },
   (table) => [
+    index('conversations_user_id_idx').on(table.userId),
     /** Supports GET recent conversations ORDER BY updated_at DESC. */
     index('conversations_updated_at_idx').on(table.updatedAt),
   ],

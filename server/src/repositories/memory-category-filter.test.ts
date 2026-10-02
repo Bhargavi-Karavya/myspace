@@ -20,6 +20,8 @@ import { memorySearchRequestSchema } from '../validators/ai.validator.js';
 
 const MARKER = 'phase411-category-filter';
 
+const TEST_USER_ID = 'test-user-phase49';
+
 function unitAt(index: number): number[] {
   return Array.from({ length: EMBEDDING_EXPERIMENT_DIMENSIONS }, (_, i) =>
     i === index ? 1 : 0,
@@ -71,7 +73,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
     await db.delete(memories).where(like(memories.content, `%${MARKER}%`));
   });
@@ -129,7 +131,8 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
         content: fixture.content,
         category: fixture.category,
         importance: 0.5,
-      });
+      userId: TEST_USER_ID,
+    });
     }
 
     const rows = await db
@@ -146,7 +149,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
       idsByLabel[row.content] = row.id;
       const fixture = fixtures.find((f) => f.content === row.content)!;
       if (fixture.axis >= 0) {
-        await updateMemoryEmbedding(row.id, unitAt(fixture.axis));
+        await updateMemoryEmbedding(row.id, unitAt(fixture.axis), TEST_USER_ID);
       }
     }
 
@@ -155,7 +158,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
 
   it('without category behaves as unfiltered search (includes all categories)', async () => {
     const ids = await seedCategoryFixtures();
-    const results = await searchSimilarMemories(unitAt(2), 50);
+    const results = await searchSimilarMemories(unitAt(2), 50, { userId: TEST_USER_ID });
     const marked = results.filter((r) => r.content.includes(MARKER));
 
     assert.ok(marked.length >= 5);
@@ -171,7 +174,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
 
   it('filters to professional only and ignores NULL embeddings', async () => {
     const ids = await seedCategoryFixtures();
-    const results = await searchSimilarMemories(unitAt(2), 10, 'professional');
+    const results = await searchSimilarMemories(unitAt(2), 10, { userId: TEST_USER_ID, category: 'professional' });
     const marked = results.filter((r) => r.content.includes(MARKER));
 
     assert.equal(marked.length, 1);
@@ -216,7 +219,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
     ];
 
     for (const c of cases) {
-      const results = await searchSimilarMemories(unitAt(c.axis), 10, c.category);
+      const results = await searchSimilarMemories(unitAt(c.axis), 10, { userId: TEST_USER_ID, category: c.category });
       const marked = results.filter((r) => r.content.includes(MARKER));
       assert.ok(marked.length >= 1, c.category);
       assert.ok(
@@ -233,6 +236,7 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
       content: `${MARKER} only-null-goal`,
       category: 'goal',
       importance: 0.4,
+      userId: TEST_USER_ID,
     });
     const [row] = await db
       .select({ id: memories.id })
@@ -241,12 +245,12 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
     createdIds.push(row!.id);
 
     // Preference has no fixture rows at all in this isolated cleanup.
-    const results = await searchSimilarMemories(unitAt(0), 5, 'preference');
+    const results = await searchSimilarMemories(unitAt(0), 5, { userId: TEST_USER_ID, category: 'preference' });
     const marked = results.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 0);
 
     // Goal exists but embedding is NULL → still empty for this marker set.
-    const goalResults = await searchSimilarMemories(unitAt(0), 5, 'goal');
+    const goalResults = await searchSimilarMemories(unitAt(0), 5, { userId: TEST_USER_ID, category: 'goal' });
     const goalMarked = goalResults.filter((r) => r.content.includes(MARKER));
     assert.equal(goalMarked.length, 0);
   });
@@ -258,21 +262,25 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
       content: `${MARKER} pref-near`,
       category: 'preference',
       importance: 0.8,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} pref-mid`,
       category: 'preference',
       importance: 0.6,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} pref-far`,
       category: 'preference',
       importance: 0.4,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} pro-distract`,
       category: 'professional',
       importance: 0.9,
+      userId: TEST_USER_ID,
     });
 
     const rows = await db
@@ -283,25 +291,24 @@ describe('searchSimilarMemories category filter (requires PostgreSQL + pgvector)
     const byContent = Object.fromEntries(rows.map((r) => [r.content, r.id]));
     createdIds.push(...rows.map((r) => r.id));
 
-    await updateMemoryEmbedding(byContent[`${MARKER} pref-near`]!, unitAt(0));
-    await updateMemoryEmbedding(byContent[`${MARKER} pref-mid`]!, unitAt(1));
-    await updateMemoryEmbedding(byContent[`${MARKER} pref-far`]!, unitAt(2));
+    await updateMemoryEmbedding(byContent[`${MARKER} pref-near`]!, unitAt(0), TEST_USER_ID);
+    await updateMemoryEmbedding(byContent[`${MARKER} pref-mid`]!, unitAt(1), TEST_USER_ID);
+    await updateMemoryEmbedding(byContent[`${MARKER} pref-far`]!, unitAt(2), TEST_USER_ID);
     // Professional on same near axis — must be excluded by category filter.
     await updateMemoryEmbedding(
       byContent[`${MARKER} pro-distract`]!,
-      unitAt(0),
-    );
+      unitAt(0), TEST_USER_ID);
 
     const query = unitAt(0);
     query[0] = 0.9;
     query[1] = Math.sqrt(1 - 0.9 ** 2);
 
-    const top1 = await searchSimilarMemories(query, 1, 'preference');
+    const top1 = await searchSimilarMemories(query, 1, { userId: TEST_USER_ID, category: 'preference' });
     assert.equal(top1.length, 1);
     assert.equal(top1[0]!.category, 'preference');
     assert.equal(top1[0]!.id, byContent[`${MARKER} pref-near`]);
 
-    const ranked = await searchSimilarMemories(query, 10, 'preference');
+    const ranked = await searchSimilarMemories(query, 10, { userId: TEST_USER_ID, category: 'preference' });
     const marked = ranked.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 3);
     assert.deepEqual(

@@ -11,11 +11,11 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const variantClasses: Record<ButtonVariant, string> = {
   primary:
-    'bg-[var(--accent)] text-white hover:brightness-[1.04] active:brightness-95 disabled:opacity-50',
+    'bg-[var(--accent)] text-white shadow-[var(--shadow-sm)] hover:brightness-[1.05] active:brightness-95 disabled:opacity-50',
   ghost:
     'bg-transparent text-[var(--fg-muted)] hover:bg-[var(--bg-soft)] hover:text-[var(--fg)] disabled:opacity-50',
   soft:
-    'bg-[var(--accent-soft)] text-[var(--accent)] hover:brightness-[0.98] disabled:opacity-50',
+    'bg-[var(--accent-soft)] text-[var(--accent)] shadow-[var(--shadow-sm)] hover:brightness-[0.98] disabled:opacity-50',
 }
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -34,7 +34,7 @@ export function Button({
   return (
     <button
       type={type}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl font-semibold tracking-[-0.015em] transition-[color,background-color,filter,transform] duration-150 hover:enabled:scale-[1.01] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
       {...props}
     >
       {children}

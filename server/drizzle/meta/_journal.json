@@ -43,6 +43,13 @@
       "when": 1790765427260,
       "tag": "0005_cute_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790922527042,
+      "tag": "0006_dazzling_network",
+      "breakpoints": true
     }
   ]
 }

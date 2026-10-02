@@ -31,6 +31,8 @@ import {
 } from './embedding.service.js';
 
 const MARKER = 'phase47-memory-embedding';
+
+const TEST_USER_ID = 'test-user-phase49';
 const PERSIST_MARKER = 'phase48-memory-embedding';
 const SEARCH_MARKER = 'phase49-memory-search-svc';
 
@@ -53,14 +55,14 @@ describe('generateEmbeddingForMemory (requires PostgreSQL + Gemini)', () => {
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
   });
 
   it('throws MemoryNotFoundError for a nonexistent memory', async () => {
     await assert.rejects(
       () =>
-        generateEmbeddingForMemory('00000000-0000-4000-8000-000000000099'),
+        generateEmbeddingForMemory('00000000-0000-4000-8000-000000000099', TEST_USER_ID),
       MemoryNotFoundError,
     );
   });
@@ -70,20 +72,21 @@ describe('generateEmbeddingForMemory (requires PostgreSQL + Gemini)', () => {
       content: `${MARKER} prefers TypeScript`,
       category: 'preference',
       importance: 0.6,
+      userId: TEST_USER_ID,
     });
 
-    const listed = await listMemories();
+    const listed = await listMemories(TEST_USER_ID);
     const row = listed.find((m) => m.content.includes(MARKER));
     assert.ok(row, 'expected inserted memory to be listable');
     createdIds.push(row!.id);
     assert.equal(row!.hasEmbedding, false);
 
-    const before = await findMemoryById(row!.id);
+    const before = await findMemoryById(row!.id, TEST_USER_ID);
     assert.ok(before);
 
     let result;
     try {
-      result = await generateEmbeddingForMemory(row!.id);
+      result = await generateEmbeddingForMemory(row!.id, TEST_USER_ID);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/fetch failed|ECONNRESET|ETIMEDOUT|503|unavailable/i.test(message)) {
@@ -109,7 +112,7 @@ describe('generateEmbeddingForMemory (requires PostgreSQL + Gemini)', () => {
       ),
     );
 
-    const after = await findMemoryById(row!.id);
+    const after = await findMemoryById(row!.id, TEST_USER_ID);
     assert.ok(after);
     assert.equal(after!.content, before!.content);
     assert.equal(after!.category, before!.category);
@@ -127,7 +130,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
   });
 
@@ -136,14 +139,15 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
       content: `${PERSIST_MARKER} null embedding ok`,
       category: 'other',
       importance: 0.4,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${PERSIST_MARKER} null embedding ok`),
     );
     assert.ok(row);
     createdIds.push(row!.id);
     assert.equal(row!.hasEmbedding, false);
-    assert.equal(await getMemoryEmbeddingDimensions(row!.id), null);
+    assert.equal(await getMemoryEmbeddingDimensions(row!.id, TEST_USER_ID), null);
   });
 
   it('persists a 3072-d embedding without changing content/category/importance', async () => {
@@ -151,14 +155,15 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
       content: `${PERSIST_MARKER} store vector`,
       category: 'preference',
       importance: 0.55,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${PERSIST_MARKER} store vector`),
     );
     assert.ok(row);
     createdIds.push(row!.id);
 
-    const before = await findMemoryById(row!.id);
+    const before = await findMemoryById(row!.id, TEST_USER_ID);
     assert.ok(before);
     assert.equal(before!.hasEmbedding, false);
 
@@ -167,7 +172,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
       (_, i) => (i === 0 ? 1 : 0),
     );
 
-    const updated = await updateMemoryEmbedding(row!.id, vector);
+    const updated = await updateMemoryEmbedding(row!.id, vector, TEST_USER_ID);
     assert.ok(updated);
     assert.equal(updated!.hasEmbedding, true);
     assert.equal(updated!.content, before!.content);
@@ -176,7 +181,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
     assert.ok(updated!.updatedAt.getTime() >= before!.updatedAt.getTime());
 
     assert.equal(
-      await getMemoryEmbeddingDimensions(row!.id),
+      await getMemoryEmbeddingDimensions(row!.id, TEST_USER_ID),
       EMBEDDING_EXPERIMENT_DIMENSIONS,
     );
   });
@@ -184,7 +189,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
   it('rejects wrong embedding dimensions', async () => {
     await assert.rejects(
       () =>
-        updateMemoryEmbedding('00000000-0000-4000-8000-000000000001', [1, 2]),
+        updateMemoryEmbedding('00000000-0000-4000-8000-000000000001', [1, 2], TEST_USER_ID),
       MemoryEmbeddingDimensionMismatchError,
     );
   });
@@ -192,7 +197,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
   it('persistEmbeddingForMemory returns 404 for missing memory', async () => {
     await assert.rejects(
       () =>
-        persistEmbeddingForMemory('00000000-0000-4000-8000-000000000099'),
+        persistEmbeddingForMemory('00000000-0000-4000-8000-000000000099', TEST_USER_ID),
       MemoryNotFoundError,
     );
   });
@@ -202,19 +207,20 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
       content: `${PERSIST_MARKER} live gemini persist`,
       category: 'goal',
       importance: 0.7,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${PERSIST_MARKER} live gemini persist`),
     );
     assert.ok(row);
     createdIds.push(row!.id);
 
-    const before = await findMemoryById(row!.id);
+    const before = await findMemoryById(row!.id, TEST_USER_ID);
     assert.ok(before);
 
     let result;
     try {
-      result = await persistEmbeddingForMemory(row!.id);
+      result = await persistEmbeddingForMemory(row!.id, TEST_USER_ID);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (/fetch failed|ECONNRESET|ETIMEDOUT|503|unavailable/i.test(message)) {
@@ -232,7 +238,7 @@ describe('memory embedding persistence (requires PostgreSQL + pgvector)', () => 
       EMBEDDING_EXPERIMENT_DIMENSIONS,
     );
 
-    const after = await findMemoryById(row!.id);
+    const after = await findMemoryById(row!.id, TEST_USER_ID);
     assert.ok(after);
     assert.equal(after!.hasEmbedding, true);
     assert.equal(after!.content, before!.content);
@@ -268,7 +274,7 @@ describe('searchMemoriesBySimilarity (requires PostgreSQL + Gemini)', () => {
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
   });
 
@@ -277,8 +283,9 @@ describe('searchMemoriesBySimilarity (requires PostgreSQL + Gemini)', () => {
       content: `${SEARCH_MARKER} no vector yet`,
       category: 'other',
       importance: 0.2,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${SEARCH_MARKER} no vector yet`),
     );
     assert.ok(row);
@@ -287,10 +294,7 @@ describe('searchMemoriesBySimilarity (requires PostgreSQL + Gemini)', () => {
 
     let result;
     try {
-      result = await searchMemoriesBySimilarity(
-        `${SEARCH_MARKER} unique-no-match-query-xyz`,
-        3,
-      );
+      result = await searchMemoriesBySimilarity(`${SEARCH_MARKER} unique-no-match-query-xyz`, 3, { userId: TEST_USER_ID });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (
@@ -319,15 +323,16 @@ describe('searchMemoriesBySimilarity (requires PostgreSQL + Gemini)', () => {
       content: `${SEARCH_MARKER} I prefer PostgreSQL for backend work`,
       category: 'preference',
       importance: 0.85,
+      userId: TEST_USER_ID,
     });
-    const row = (await listMemories()).find((m) =>
+    const row = (await listMemories(TEST_USER_ID)).find((m) =>
       m.content.includes(`${SEARCH_MARKER} I prefer PostgreSQL`),
     );
     assert.ok(row);
     createdIds.push(row!.id);
 
     try {
-      await persistEmbeddingForMemory(row!.id);
+      await persistEmbeddingForMemory(row!.id, TEST_USER_ID);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (
@@ -343,10 +348,7 @@ describe('searchMemoriesBySimilarity (requires PostgreSQL + Gemini)', () => {
 
     let result;
     try {
-      result = await searchMemoriesBySimilarity(
-        'What database do I usually prefer?',
-        3,
-      );
+      result = await searchMemoriesBySimilarity('What database do I usually prefer?', 3, { userId: TEST_USER_ID });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (

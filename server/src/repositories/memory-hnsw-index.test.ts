@@ -21,6 +21,8 @@ import {
 } from '../repositories/memory.repository.js';
 
 const MARKER = 'phase410-hnsw-index';
+
+const TEST_USER_ID = 'test-user-phase49';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATION_PATH = join(
   __dirname,
@@ -59,7 +61,7 @@ describe('Phase 4.10 HNSW index in PostgreSQL (requires pgvector)', () => {
 
   after(async () => {
     for (const id of createdIds) {
-      await deleteMemoryById(id);
+      await deleteMemoryById(id, TEST_USER_ID);
     }
     await db.delete(memories).where(like(memories.content, `%${MARKER}%`));
   });
@@ -101,6 +103,7 @@ describe('Phase 4.10 HNSW index in PostgreSQL (requires pgvector)', () => {
       content: `${MARKER} null embedding ok`,
       category: 'other',
       importance: 0.25,
+      userId: TEST_USER_ID,
     });
     const [row] = await db
       .select({
@@ -121,21 +124,25 @@ describe('Phase 4.10 HNSW index in PostgreSQL (requires pgvector)', () => {
       content: `${MARKER} near`,
       category: 'preference',
       importance: 0.7,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} mid`,
       category: 'preference',
       importance: 0.5,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} far`,
       category: 'other',
       importance: 0.3,
+      userId: TEST_USER_ID,
     });
     await insertMemory({
       content: `${MARKER} null-skip`,
       category: 'preference',
       importance: 0.9,
+      userId: TEST_USER_ID,
     });
 
     const rows = await db
@@ -150,18 +157,18 @@ describe('Phase 4.10 HNSW index in PostgreSQL (requires pgvector)', () => {
     const nullId = byContent[`${MARKER} null-skip`]!;
     createdIds.push(nearId, midId, farId, nullId);
 
-    await updateMemoryEmbedding(nearId, unitAt(0));
-    await updateMemoryEmbedding(midId, unitAt(1));
-    await updateMemoryEmbedding(farId, unitAt(2));
+    await updateMemoryEmbedding(nearId, unitAt(0), TEST_USER_ID);
+    await updateMemoryEmbedding(midId, unitAt(1), TEST_USER_ID);
+    await updateMemoryEmbedding(farId, unitAt(2), TEST_USER_ID);
 
     const query = unitAt(0);
     query[0] = 0.9;
     query[1] = Math.sqrt(1 - 0.9 ** 2);
 
-    const top1 = await searchSimilarMemories(query, 1);
+    const top1 = await searchSimilarMemories(query, 1, { userId: TEST_USER_ID });
     assert.equal(top1.length, 1);
 
-    const ranked = await searchSimilarMemories(query, 50);
+    const ranked = await searchSimilarMemories(query, 50, { userId: TEST_USER_ID });
     const marked = ranked.filter((r) => r.content.includes(MARKER));
     assert.equal(marked.length, 3);
     assert.equal(marked[0]!.id, nearId);

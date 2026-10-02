@@ -18,6 +18,8 @@ import {
 
 const MARKER = 'phase311-privacy-storage-test';
 
+const TEST_USER_ID = 'test-user-phase49';
+
 describe('privacy storage path (no Gemini)', () => {
   before(async () => {
     // Ensure DB is reachable; skip suite soft-fail is not available — assert.
@@ -64,10 +66,10 @@ describe('privacy storage path (no Gemini)', () => {
     assert.equal(discardedCount, 2);
     assert.equal(accepted.length, 1);
 
-    const saved = await insertMemory(accepted[0]!);
+    const saved = await insertMemory({ ...accepted[0]!, userId: TEST_USER_ID });
     assert.match(saved.content, /PostgreSQL/);
 
-    const rows = await listMemories();
+    const rows = await listMemories(TEST_USER_ID);
     const marked = rows.filter((row) => row.content.includes(MARKER));
     assert.equal(marked.length, 1);
     assert.doesNotMatch(marked[0]!.content, /SuperSecret123|sk-test-123456/i);
@@ -86,6 +88,6 @@ describe('privacy storage path (no Gemini)', () => {
 
     // Cleanup the inserted preference row.
     const toDelete = marked[0]!;
-    await deleteMemoryById(toDelete.id);
+    await deleteMemoryById(toDelete.id, TEST_USER_ID);
   });
 });

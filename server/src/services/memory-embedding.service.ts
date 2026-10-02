@@ -63,13 +63,14 @@ export async function generateEmbeddingFromMemoryContent(
 }
 
 /**
- * Phase 4.7 — load a stored memory and generate an embedding from its content.
- * Does not write to PostgreSQL or modify the memory row.
+ * Phase 4.7 — load a stored memory owned by userId and generate an embedding
+ * from its content. Does not write to PostgreSQL or modify the memory row.
  */
 export async function generateEmbeddingForMemory(
   id: string,
+  userId: string,
 ): Promise<MemoryEmbeddingTestResult> {
-  const memory = await getMemory(id);
+  const memory = await getMemory(id, userId);
   const embedding = await generateEmbeddingFromMemoryContent(memory.content);
 
   return {
@@ -82,13 +83,14 @@ export async function generateEmbeddingForMemory(
 }
 
 /**
- * Phase 4.8 — generate an embedding for a memory and persist it in PostgreSQL.
+ * Phase 4.8 — generate an embedding for a user-owned memory and persist it.
  * Does not return the raw vector.
  */
 export async function persistEmbeddingForMemory(
   id: string,
+  userId: string,
 ): Promise<PersistedMemoryEmbeddingResult> {
-  const memory = await getMemory(id);
+  const memory = await getMemory(id, userId);
   const embedding = await generateEmbeddingFromMemoryContent(memory.content);
 
   if (embedding.dimensions !== EMBEDDING_EXPERIMENT_DIMENSIONS) {
@@ -97,13 +99,13 @@ export async function persistEmbeddingForMemory(
     );
   }
 
-  const updated = await updateMemoryEmbedding(id, embedding.vector);
+  const updated = await updateMemoryEmbedding(id, embedding.vector, userId);
   if (!updated) {
     throw new MemoryNotFoundError(id);
   }
 
   const dimensions =
-    (await getMemoryEmbeddingDimensions(id)) ?? embedding.dimensions;
+    (await getMemoryEmbeddingDimensions(id, userId)) ?? embedding.dimensions;
 
   return {
     memory: {
@@ -117,13 +119,13 @@ export async function persistEmbeddingForMemory(
 
 /**
  * Phase 4.9–4.12 — embed a query and Top-K search real memories via pgvector.
- * Ranking + LIMIT happen in PostgreSQL; optional category filtered before ORDER BY.
+ * Ranking + LIMIT + user ownership filter happen in PostgreSQL.
  * When fewer than topK matches exist, all matches are returned (no error).
  */
 export async function searchMemoriesBySimilarity(
   query: string,
   topK: number = MEMORY_SEARCH_DEFAULT_TOP_K,
-  category?: MemoryCategory,
+  options: { userId: string; category?: MemoryCategory },
 ): Promise<MemorySearchResult> {
   const { embeddings } = await generateTextEmbeddings([query]);
   const queryVector = embeddings[0]!.embedding;
@@ -132,7 +134,7 @@ export async function searchMemoriesBySimilarity(
     throw new MemoryEmbeddingDimensionMismatchError(queryVector.length);
   }
 
-  const results = await searchSimilarMemories(queryVector, topK, category);
+  const results = await searchSimilarMemories(queryVector, topK, options);
   return { query, results };
 }
 

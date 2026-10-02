@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/brand/favicon.png" />
@@ -9,11 +9,11 @@
       name="description"
       content="MySpace — a calm personal space to think out loud, organize thoughts, and gain clarity."
     />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <title>MySpace</title>
@@ -21,11 +21,13 @@
       (() => {
         try {
           const stored = localStorage.getItem('myspace-theme')
-          // Default to dark (AI Studio–style) unless user chose light.
-          const dark = stored !== 'light'
+          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          const dark =
+            stored === 'dark' || (stored !== 'light' && prefersDark)
           document.documentElement.classList.toggle('dark', dark)
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
         } catch {
-          document.documentElement.classList.add('dark')
+          document.documentElement.classList.remove('dark')
         }
       })()
     </script>
